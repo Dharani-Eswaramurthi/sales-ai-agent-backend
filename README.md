@@ -1,48 +1,79 @@
-# Sales-AI-Agent
+# Sales AI Agent
 
-## Overview
-This repository contains the source code for the Sales AI Agent application. The application is designed to function as a Customer Relationship Management (CRM) system and a backend service to manage and track sales activities, customer interactions, and sales performance.
+Welcome to the Sales AI Agent CRM! This project is designed to streamline and enhance your sales process using AI-driven insights and automation. Below you'll find an overview of the features and functionalities provided by both the frontend CRM and the backend services.
 
-## Architecture
-The project is divided into two main components:
-1. **CRM (Customer Relationship Management)**
-2. **Backend Service**
+## Features
 
-### CRM
-The CRM component is responsible for managing customer information and interactions. It provides a user-friendly interface for sales agents to input and retrieve customer data, track sales activities, and generate reports.
+### CRM Frontend
 
-#### Features
-- Manage customer information
-- Track customer interactions
-- Generate sales reports
-- Monitor sales performance
+1. **Login Authentication**:
+   - Secure login for authorized users.
+   - Session management to maintain user authentication state.
 
-### Backend Service
-The backend service handles the core logic and data processing for the application. It provides APIs for the CRM to interact with the database and perform various operations.
+2. **Sidebar Navigation**:
+   - Easy navigation through different sections of the CRM.
+   - Links to generate campaigns and check mail status.
 
-#### Features
-- RESTful API for CRUD operations
-- Authentication and authorization
-- Data validation and error handling
-- Integration with external services
+3. **Mail Status Table**:
+   - View the status of sent emails.
+   - Detailed information about each email, including recipient, subject, body, and status.
 
-## Installation
-To install the application, follow these steps:
+4. **Potential Companies Form**:
+   - Generate a list of potential companies based on product description and Ideal Client Profile (ICP).
+   - Fetch decision makers for each company.
+   - Draft and send personalized emails to decision makers.
+
+5. **Header and Footer**:
+   - Consistent header and footer across the application for a professional look.
+
+### Backend Functionalities
+
+1. **Email Tracking**:
+   - Track the status of sent emails (Not Responded, Interested, Not Interested).
+   - Generate unique tracking IDs for each email.
+   - Update email status based on recipient actions.
+
+2. **Potential Companies and Decision Makers**:
+   - Use AI to identify potential companies based on product description and ICP.
+   - Fetch decision makers from LinkedIn and other sources.
+   - Validate email addresses of decision makers.
+
+3. **Email Proposal Generation**:
+   - Generate personalized email proposals using AI.
+   - Tailor emails to the recipient's profile and company's context.
+
+4. **Email Sending**:
+   - Send emails with tracking pixels to monitor opens and clicks.
+   - Handle email sending through SMTP.
+
+5. **Reminder Emails**:
+   - Generate follow-up reminder emails for non-responsive recipients.
+   - Encourage recipients to take action with polite and concise reminders.
+
+6. **API Endpoints**:
+   - `/potential-companies`: Get potential companies based on product description and ICP.
+   - `/potential-decision-makers`: Get decision makers for a given company.
+   - `/email-proposal`: Generate email proposals.
+   - `/send_email`: Send emails with tracking.
+   - `/track/{tracking_id}`: Track email opens.
+   - `/track-response/{tracking_id}/{response}`: Track recipient responses.
+   - `/email-reminder`: Generate follow-up reminder emails.
+   - `/status`: Fetch tracked emails.
+   - `/fetch-mail-status`: Fetch mail status for the frontend.
+
+## Getting Started
+
+### Prerequisites
+
+- Node.js
+- Python
+- PostgreSQL
+- FastAPI
+- React
+
+### Installation
 
 1. Clone the repository:
-    ```sh
-    git clone https://github.com/Dharani-Eswaramurthi/Sales-AI-Agent.git
-    ```
-2. Navigate to the project directory:
-    ```sh
-    cd sales-agent
-    ```
-3. Install the dependencies:
-    ```sh
-    npm install
-    ```
-
-## Usage
-To start the application, run the following command:
-```sh
-npm start
+   ```bash
+   git clone https://github.com/Dharani-Eswaramurthi/Sales-AI-Agent.git
+   cd Sales-AI-Agent

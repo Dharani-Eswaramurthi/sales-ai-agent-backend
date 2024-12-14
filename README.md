@@ -77,3 +77,44 @@ Welcome to the Sales AI Agent CRM! This project is designed to streamline and en
    ```bash
    git clone https://github.com/Dharani-Eswaramurthi/Sales-AI-Agent.git
    cd Sales-AI-Agent
+
+2. Install frontend dependencies:
+   ```bash
+   cd crm
+   npm install
+
+3. Install backend dependencies:
+   ```bash
+   cd ../app
+   pip install -r requirements.txt
+
+4. Set up the PostgreSQL database and update the DATABASE_URL in app.py.
+
+5. Start the backend server:
+   ```bash
+   uvicorn app:app --reload
+
+6. Start the frontend server:
+   ```bash
+   cd ../crm
+   npm start
+
+
+### Usage
+1. Open your browser and navigate to http://localhost:3000.
+2. Log in with your credentials.
+3. Use the sidebar to navigate through different sections.
+4. Generate potential companies and decision makers.
+5. Draft and send personalized emails.
+6. Track the status of sent emails and follow up as needed.
+
+### Contributing
+We welcome contributions! Please fork the repository and submit pull requests.
+
+### License
+This project is licensed under the MIT License.
+
+### Contact
+For any questions or support, don't hesitate to get in touch with Dharani Eswaramurthi.
+
+### Thank you for using Sales AI Agent CRM! We hope it enhances your sales process and drives success. 

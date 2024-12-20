@@ -60,7 +60,7 @@ Base.metadata.create_all(bind=engine)
 # Email Configuration
 SMTP_SERVER = os.environ.get('SMTP_SERVER') 
 SMTP_PORT = os.environ.get('SMTP_PORT')
-USERNAME = os.environ.get('EMAIL_USERNAME')
+USERNAME = os.environ.get('EMAIL_USERNAME') 
 PASSWORD = os.environ.get('EMAIL_PASSWORD')
 
 # FastAPI app

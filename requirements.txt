@@ -8,4 +8,4 @@ secure-smtplib
 email-validator
 python-dotenv
 dnspython
-openai
+openai==0.28

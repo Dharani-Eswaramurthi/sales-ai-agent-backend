@@ -357,6 +357,7 @@ async def send_email(email: EmailData, tracking_id: str = None):
             raise HTTPException(status_code=404, detail="Email entry not found")
 
         try:
+            if_old_followup = db.query(FollowupStatus).filter(FollowupStatus.followup_id == tracking_id).first()
             new_followup = FollowupStatus(
                 followup_id=tracking_id,
                 email_id=email_entry.email_id,
@@ -365,7 +366,18 @@ async def send_email(email: EmailData, tracking_id: str = None):
                 followup_status="Not Responded",
                 followup_sent_count=1,
             )
-            db.add(new_followup)
+            if if_old_followup:
+                db.query(FollowupStatus).filter(FollowupStatus.followup_id == tracking_id).update(
+                    {
+                        "subject": subject,
+                        "body": body,
+                        "followup_status": "Not Responded",
+                        "followup_sent_count": if_old_followup.followup_sent_count + 1,
+                    }
+                )
+            
+            else:
+                db.add(new_followup)
 
             recipient = email_entry.email_id
             subject = subject

@@ -46,7 +46,7 @@ def get_company_and_person_info(company_name, person_name, position, product_des
                 Output Format:
                 ( provide a json of 3 keys namely {company_name}, {person_name} and pain points, and their relevant information with only 50 words for each of string datatype as their values, no other key should be present in the json )
 
-                NOTE: Enclose response only in triple quotes.
+                NOTE: Enclose response only in triple quotes and do not include any other information other than the response in the output.
 '''
     messages = [
         {"role": "system", "content": "You are a helpful assistant that provides detailed information about companies and individuals."},

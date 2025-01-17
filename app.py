@@ -314,7 +314,7 @@ def get_email_proposal(request: EmailProposalRequest):
 
         print("Information fetched for ", ref_dm)
 
-        approach=['Problem Based', 'Competitive Analysis Based', 'Industry Insight Based', 'Tabular Based Proposal']
+        approach=['Problem Based', 'Competitive Analysis Based', 'Industry Insight Based']
 
         prompt = f"""
                     Given the following input details, craft a professional and engaging business email:
@@ -337,7 +337,7 @@ def get_email_proposal(request: EmailProposalRequest):
 
                     "subject": "Enhancing {{company_name}}'s Efficiency with Our Innovative Solution",
                     "body": '''
-                    ( Craft a persuasive and engaging email body tailored to the recipient's profile and company context. Analyse the gathered information and choose the best appraoch from these options: {approach} )
+                    ( Craft a persuasive and engaging email body tailored to the recipient's profile and company context. Analyse the gathered information and choose the best appraoch from these options: {approach}. Use bullets, numbers, or tables to present the content effectively. )
                     '''
                     Important: Ensure the email body uses triple quotes (''') for multi-line text. Return only the JSON output without any additional text or content.
                     """
@@ -559,7 +559,7 @@ def get_email_reminder(tracking_id: str):
 
                 "subject": "Following Up on Our Previous Conversation",
                 "body": '''
-                ( Craft a concise and polite follow-up email body that re-engages the recipient based on the context of the previous email. Select the best approach from these options: {approach} )
+                ( Craft a concise and polite follow-up email body that re-engages the recipient based on the context of the previous email. Select the best approach from these options: {approach}. Use bullets, numbers, or tables to present the content effectively. )
                 '''
                 Important: Ensure the email body uses triple quotes (''') for multi-line text. Return only the JSON output without any additional text or content.
                 """

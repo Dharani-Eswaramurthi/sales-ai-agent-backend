@@ -715,7 +715,12 @@ def check_email_status(tracking_id: str):
 
         if days_difference > 2 and status != "Not Interested":
             status = "Send Reminder"
-            db.commit()
+            if followup:
+                followup.followup_status = "Send Reminder"
+                db.commit()
+            else:
+                email.status = "Send Reminder"
+                db.commit()
             return {
                 "email_id": email.email_id,
                 "status": f"Need to send a reminder as the email was sent {days_difference} days ago",

@@ -314,6 +314,8 @@ def get_email_proposal(request: EmailProposalRequest):
 
         print("Information fetched for ", ref_dm)
 
+        approach=['Problem Based', 'Competitive Analysis Based', 'Industry Insight Based', 'Tabular Based Proposal']
+
         prompt = f"""
                     Given the following input details, craft a professional and engaging business email:
 
@@ -335,16 +337,7 @@ def get_email_proposal(request: EmailProposalRequest):
 
                     "subject": "Enhancing {{company_name}}'s Efficiency with Our Innovative Solution",
                     "body": '''
-                    Hi {{ref_dm}},
-
-                    I hope this email finds you well. I'm reaching out to discuss how our latest solution can help {{company_name}} tackle {{specific pain point}} more effectively.
-
-                    Our product is designed to enhance {{specific feature or process}}, ensuring smoother operations and better outcomes. Given your role as {{dm_pos}}, I believe this could align perfectly with your current objectives.
-
-                    I'd love to explore this further and see how we can support {{company_name}}'s goals.
-
-                    Best regards,
-                    {{Your Name}}
+                    ( Craft a persuasive and engaging email body tailored to the recipient's profile and company context. Analyse the gathered information and choose the best appraoch from these options: {approach} )
                     '''
                     Important: Ensure the email body uses triple quotes (''') for multi-line text. Return only the JSON output without any additional text or content.
                     """
@@ -545,15 +538,32 @@ def get_email_reminder(tracking_id: str):
     decision_maker = email.dm_name
     body = email.email_body
 
+    approach = ['Gentle Reminder', 'Offer Additional Value', 'Highlighting Missed Opportunity', 'Reinforce Benefits']
+
     prompt = f"""
-                Given the company {company_name} and the decision maker {decision_maker}, please craft a follow-up email reminder to re-engage the recipient based on the previous mail sent {body}. The email should be polite, concise and should encourage the recipient to take action.
+                Given the following input details, craft a professional follow-up email reminder:
 
-                Output Format:
-                ( provide only json of subject and body, strictly without any other extra text or content. )
+                Inputs:
 
-                NOTE: Enclose multiple lines of the email body in a triple quotes( ''' ).
-                    
-                    """
+                Company Name: {company_name}
+                Decision Maker Name: {decision_maker}
+                Previous Email Content: {body}
+
+                Steps to Follow:
+
+                Review the previous email content sent to {decision_maker} at {company_name}.
+                Craft a polite and concise follow-up email to re-engage the recipient, encouraging them to take action.
+                Choose the best approach from the following options: {approach}.
+                Ensure the email is professional, respectful, and appropriately formatted for business communication.
+                Output Format: Return the email content in JSON format with the following structure:
+
+                "subject": "Following Up on Our Previous Conversation",
+                "body": '''
+                ( Craft a concise and polite follow-up email body that re-engages the recipient based on the context of the previous email. Select the best approach from these options: {approach} )
+                '''
+                Important: Ensure the email body uses triple quotes (''') for multi-line text. Return only the JSON output without any additional text or content.
+                """
+
     
     messages = [
         {

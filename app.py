@@ -25,6 +25,7 @@ from base64 import b64decode
 from base64 import b64decode
 from Crypto.Cipher import AES
 from Crypto.Util.Padding import unpad
+from email_proposal import generate_email
 
 # Database Configuration
 DATABASE_URL = "postgresql://user:sales%40123@db-status.postgres.database.azure.com/mail-status"
@@ -48,6 +49,10 @@ class EmailStatus(Base):
     status = Column(String, default="Not Responded")
     date_sent = Column(TIMESTAMP, default=datetime.utcnow)
     date_opened = Column(TIMESTAMP)
+    sender_name = Column(String, nullable=False)
+    sender_company = Column(String, nullable=False)
+    sender_position = Column(String, nullable=False)
+    sender_email = Column(String)
     product_id = Column(String, ForeignKey('product_details.product_id', ondelete='CASCADE'))
 
 # Follow-up Email Model
@@ -63,6 +68,11 @@ class FollowupStatus(Base):
     company_name = Column(String, nullable=False)
     recipient_name = Column(String, nullable=False)
     recipient = Column(String, nullable=False)
+    sender_name = Column(String, nullable=False)
+    sender_company = Column(String, nullable=False)
+    sender_position = Column(String, nullable=False)
+    sender_email = Column(String)
+    followup_threshold = Column(Integer)
     followup_type = Column(String)
 
 
@@ -107,6 +117,9 @@ class EmailData(BaseModel):
     recipient: str
     subject: str
     body: str
+    sender_name: str
+    sender_company: str
+    sender_position: str
     product_id: str
 
 class FollowupData(BaseModel):
@@ -116,6 +129,9 @@ class FollowupData(BaseModel):
     followup_sent_count: int = 0
     recipient_name: str = None
     company_name: str = None
+    sender_name: str = None
+    sender_company: str = None
+    sender_position: str = None
     recipient: str = None
 
 class ProductRequest(BaseModel):
@@ -139,6 +155,15 @@ class EmailProposalRequest(BaseModel):
     company_name: str
     decision_maker: str
     decision_maker_position: str
+    sender_name: str
+    sender_position: str
+    sender_company: str
+
+class ReminderRequest(BaseModel):
+    type: str
+    sender_name: str
+    sender_position: str
+    sender_company: str
 
 class TrackedEmail(BaseModel):
     id: str
@@ -314,57 +339,23 @@ def get_email_proposal(request: EmailProposalRequest):
 
         print("Information fetched for ", ref_dm)
 
-        approach=['Problem Based', 'Competitive Analysis Based', 'Industry Insight Based']
+        query = "Personalised Email proposal based on Target Company and Decision Maker"
 
-        prompt = f"""
-                    Given the following input details, craft a professional and engaging business email:
+        situation = "email"
 
-                    Inputs:
+        kwargs = {
+                    "product_description": {request.product_description},
+                    "company_name": {company_name},
+                    "decision_maker": {ref_dm},
+                    "decision_maker_position": {dm_pos},
+                    "req_info": req_info,
+                    "sender_name": {request.sender_name},
+                    "sender_position": {request.sender_position},
+                    "sender_company": {request.sender_company}
+                }
 
-                    Product Description: {request.product_description}
-                    Target Company Name: {company_name}
-                    Decision Maker Name: {ref_dm}
-                    Decision Maker Position: {dm_pos}
-                    Target Company Details and Decision Maker Details: {req_info}
 
-                    Steps to Follow:
-
-                    Understand the product description and the pain points of the target company {company_name}.
-                    Review the gathered information about the target company {company_name} and the decision maker {ref_dm}, who holds the position of {dm_pos}.
-                    Compose a casual yet professional email, tailored to the recipient's profile and company updates. Focus on enhancing existing features or solving specific issues, reflecting the decision maker's preferences and interests.
-                    Ensure the email has a persuasive and engaging tone, formatted to match professional business communication standards.
-                    Output Format: Return the email content in JSON format with the following structure:
-
-                    "subject": "Enhancing {{company_name}}'s Efficiency with Our Innovative Solution",
-                    "body": '''
-                    ( Craft a persuasive and engaging email body tailored to the recipient's profile and company context. Analyse the gathered information and choose the best appraoch from these options: {approach}. Use bullets, numbers, or tables to present the content effectively. )
-                    '''
-                    Important: Ensure the email body uses triple quotes (''') for multi-line text. Return only the JSON output without any additional text or content.
-                    """
-
-        messages = [
-            {
-                "role": "system",
-                "content": (
-                    "You are a professional email writer who crafts persuasive and engaging business emails tailored "
-                    "to the recipient's profile and company context."
-                )
-            },
-            {
-                "role": "user",
-                "content": prompt
-            }
-        ]
-
-        print("Starting to generate email template for", ref_dm)
-        openai.api_key = os.getenv("OPEN_AI_API_KEY")
-
-        response = openai.ChatCompletion.create(
-            model="gpt-4",  # Best GPT model for this task
-            messages=messages,
-            max_tokens=400,
-            temperature=0.7
-        )
+        response = generate_email(query, situation, **kwargs)
 
         print("Email template generated for", ref_dm)
 
@@ -375,7 +366,7 @@ def get_email_proposal(request: EmailProposalRequest):
 
 def format_response(response):
     # Parse and clean JSON output
-    json_string = response["choices"][0]["message"]["content"]
+    json_string = response["choices"][0]["message"]["content"].strip()
     cleaned_json_string = re.sub(r'```(json|)', '', json_string).strip()
     try:
         # Ensure the JSON string is properly formatted
@@ -413,7 +404,11 @@ async def send_email(email: EmailData, user_email: str, encrypted_password: str)
     recipient = email.recipient
     subject = email.subject
     body = email.body.replace('\n', '<br>')  # Replace \n with <br> for line breaks
-    email_type = email.email_type
+    # email_type = email.email_type/
+    sender_name = email.sender_name
+    sender_company = email.sender_company
+    sender_position = email.sender_position
+    sender_email = user_email
     product_id = email.product_id
 
     # Debugging: Print the encrypted password received
@@ -441,8 +436,12 @@ async def send_email(email: EmailData, user_email: str, encrypted_password: str)
             email_id=recipient,
             email_subject=subject,
             email_body=body,
-            email_type=email_type,
+            # email_type=email_type,
             product_id=product_id,
+            sender_name=sender_name,
+            sender_company=sender_company,
+            sender_position=sender_position,
+            sender_email=sender_email,
             status="Not Responded",
         )
         db.add(new_email)
@@ -523,7 +522,7 @@ async def track(tracking_id: str, response: str):
         db.close()
 
 @app.post("/email-reminder")
-def get_email_reminder(tracking_id: str):
+def get_email_reminder(tracking_id: str, request: ReminderRequest):
     if not API_KEY:
         raise HTTPException(status_code=500, detail="API Key not configured")
     
@@ -537,54 +536,31 @@ def get_email_reminder(tracking_id: str):
     company_name = email.company_name
     decision_maker = email.dm_name
     body = email.email_body
+    product_description = db.query(ProductDetails).filter(ProductDetails.product_id == email.product_id).first().product_description
+    dm_pos = email.dm_position
+    response = get_company_and_person_info(decision_maker, decision_maker, dm_pos, product_description)
 
-    approach = ['Gentle Reminder', 'Offer Additional Value', 'Highlighting Missed Opportunity', 'Reinforce Benefits']
+    print("Information fetched for ", decision_maker," from the company ", company_name,":", response)
 
-    prompt = f"""
-                Given the following input details, craft a professional follow-up email reminder:
+    req_info = format_response(response)
 
-                Inputs:
+    query = f"Personalised {request.type[0].upper() + request.type[1:]} proposal based on Target Company and Decision Maker"
 
-                Company Name: {company_name}
-                Decision Maker Name: {decision_maker}
-                Previous Email Content: {body}
+    situation = request.type
 
-                Steps to Follow:
+    kwargs = {
+                "product_description": {product_description},
+                "company_name": {company_name},
+                "decision_maker": {decision_maker},
+                "decision_maker_position": {dm_pos},
+                "req_info": req_info,
+                "sender_name": {request.sender_name},
+                "sender_position": {request.sender_position},
+                "sender_company": {request.sender_company}
+            }
 
-                Review the previous email content sent to {decision_maker} at {company_name}.
-                Craft a polite and concise follow-up email to re-engage the recipient, encouraging them to take action.
-                Choose the best approach from the following options: {approach}.
-                Ensure the email is professional, respectful, and appropriately formatted for business communication.
-                Output Format: Return the email content in JSON format with the following structure:
 
-                "subject": "Following Up on Our Previous Conversation",
-                "body": '''
-                ( Craft a concise and polite follow-up email body that re-engages the recipient based on the context of the previous email. Select the best approach from these options: {approach}. Use bullets, numbers, or tables to present the content effectively. )
-                '''
-                Important: Ensure the email body uses triple quotes (''') for multi-line text. Return only the JSON output without any additional text or content.
-                """
-
-    
-    messages = [
-        {
-            "role": "system",
-            "content": (
-                "You are a professional email writer who crafts persuasive and engaging business emails tailored "
-                "to the recipient's profile and company context."
-            )
-        },
-        {
-            "role": "user",
-            "content": prompt
-        }
-    ]
-
-    response = openai.ChatCompletion.create(
-        model="gpt-4",  # Best GPT model for this task
-        messages=messages,
-        max_tokens=400,
-        temperature=0.7
-    )
+    response = generate_email(query, situation, **kwargs)
 
     formatted_response = format_response(response)
 
@@ -592,6 +568,19 @@ def get_email_reminder(tracking_id: str):
     body = formatted_response.get("body")
 
     return {"subject": subject, "body": body}
+
+@app.post('/update-followup')
+def update_followup(followup_id: str, followup_field: str, field_value: str):
+    db = SessionLocal()
+    followup = db.query(FollowupStatus).filter(FollowupStatus.followup_id == followup_id).first()
+    if not followup:
+        raise HTTPException(status_code=404, detail="Followup not found")
+
+    setattr(followup, followup_field, field_value)
+    db.commit()
+    db.close()
+    return {"message": "Followup updated successfully"}
+
 
 @app.post("/send_followup_email")
 async def send_followup_email(user_email: str, encrypted_password: str, followup: FollowupData):
@@ -610,6 +599,11 @@ async def send_followup_email(user_email: str, encrypted_password: str, followup
                 followup_sent_count=1,
                 recipient_name=followup.recipient_name,
                 company_name=followup.company_name,
+                sender_name=followup.sender_name,
+                sender_company=followup.sender_company,
+                sender_position=followup.sender_position,
+                sender_email=user_email,
+                sender_threshold=2,
                 recipient=followup.recipient,
                 followup_type="Followup Mail"
             )
@@ -677,7 +671,16 @@ def fetch_mail_status():
     db = SessionLocal()
     email_statuses = db.query(EmailStatus).all()
     product_details = {product.product_id: product.product_name for product in db.query(ProductDetails).all()}
-    followup = {followup.email_uid: {"status": followup.followup_status, "date_sent": followup.followup_date, "followup_sent_count": followup.followup_sent_count } for followup in db.query(FollowupStatus).all()}
+    followup = {followup.email_uid: {"status": followup.followup_status,
+                                     "followup_id": followup.followup_id,
+                                     "date_sent": followup.followup_date, 
+                                     "followup_sent_count": followup.followup_sent_count, 
+                                     "sender_name": followup.sender_name,
+                                     "sender_company": followup.sender_company,
+                                     "sender_position": followup.sender_position,
+                                     "sender_email": followup.sender_email,
+                                     "followup_threshold": followup.followup_threshold
+                                     } for followup in db.query(FollowupStatus).all()}
     db.close()
     
     result = []
@@ -685,11 +688,17 @@ def fetch_mail_status():
         followup_data = followup.get(email.id, "No Followup")
         result.append({
             "id": email.id,
+            "followup_id": followup_data['followup_id'] if followup_data != "No Followup" else None,
             "dm_name": email.dm_name,
             "company_name": email.company_name,
             "dm_position": email.dm_position,
             "email_id": email.email_id,
             "email_subject": email.email_subject,
+            "sender_name": followup_data['sender_name'] if followup_data != "No Followup" else email.sender_name,
+            "sender_company": followup_data['sender_company'] if followup_data != "No Followup" else email.sender_company,
+            "sender_position": followup_data['sender_position'] if followup_data != "No Followup" else email.sender_position,
+            "sender_email": followup_data['sender_email'] if followup_data != "No Followup" else email.sender_email,
+            "followup_threshold": followup_data['followup_threshold'] if followup_data != "No Followup" else 0,
             "email_body": email.email_body,
             "followup_sent_count": followup_data['followup_sent_count'] if followup_data != "No Followup" else 0,
             "status": followup_data['status'] if followup_data != "No Followup" else email.status,
@@ -709,6 +718,7 @@ def check_email_status(tracking_id: str):
     try:
         email = db.query(EmailStatus).filter(EmailStatus.id == tracking_id).first()
         followup = db.query(FollowupStatus).filter(FollowupStatus.email_uid == tracking_id).first()
+        followup_threshold = db.query(FollowupStatus).filter(FollowupStatus.email_uid == tracking_id).first().followup_threshold
 
         if not email:
             return {"error": "Email with the provided tracking ID not found."}
@@ -723,7 +733,7 @@ def check_email_status(tracking_id: str):
         time_difference = current_time - date_sent
         days_difference = time_difference.days
 
-        if days_difference > 2 and status != "Not Interested":
+        if days_difference > followup_threshold and status != "Not Interested":
             status = "Send Reminder"
             if followup:
                 followup.followup_status = "Send Reminder"

@@ -11,3 +11,6 @@ dnspython
 openai==0.28
 cryptography==3.4.8
 pycryptodome==3.10.1
+PyPDF2
+sentence-transformers
+faiss-cpu

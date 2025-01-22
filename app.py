@@ -666,7 +666,6 @@ def status():
         ]
     }
 
-
 @app.get("/fetch-mail-status")
 def fetch_mail_status():
     db = SessionLocal()

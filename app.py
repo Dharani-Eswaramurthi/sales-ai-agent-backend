@@ -664,7 +664,7 @@ def status():
             }
             for email in tracked_emails
         ]
-    }
+    } 
 
 @app.get("/fetch-mail-status")
 def fetch_mail_status():

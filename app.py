@@ -796,6 +796,7 @@ def add_product(request: ProductRequest):
     finally:
         db.close()
 
+        
 
 @app.get("/get_products")
 def get_products():

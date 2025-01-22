@@ -662,7 +662,7 @@ def status():
                 "email_datesent": email.date_sent,
                 "status": email.status,
             }
-            for email in tracked_emails
+            for email in tracked_emails 
         ]
     }
 

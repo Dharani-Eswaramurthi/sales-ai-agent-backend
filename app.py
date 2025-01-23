@@ -717,8 +717,9 @@ def check_email_status(tracking_id: str):
     db = SessionLocal()
     try:
         email = db.query(EmailStatus).filter(EmailStatus.id == tracking_id).first()
+        print("Email: ", email)
         followup = db.query(FollowupStatus).filter(FollowupStatus.email_uid == tracking_id).first()
-        followup_threshold = db.query(FollowupStatus).filter(FollowupStatus.email_uid == tracking_id).first().followup_threshold
+        print("Followup: ", followup)
 
         if not email:
             return {"error": "Email with the provided tracking ID not found."}
@@ -733,19 +734,20 @@ def check_email_status(tracking_id: str):
         time_difference = current_time - date_sent
         days_difference = time_difference.days
 
-        if days_difference > followup_threshold and status != "Not Interested":
-            status = "Send Reminder"
-            if followup:
-                followup.followup_status = "Send Reminder"
-                db.commit()
-            else:
-                email.status = "Send Reminder"
-                db.commit()
-            return {
-                "email_id": email.email_id,
-                "status": f"Need to send a reminder as the email was sent {days_difference} days ago",
-                "days_since_sent": days_difference
-            }
+        if followup:
+            if days_difference > followup.followup_threshold and status != "Not Interested":
+                status = "Send Reminder"
+                if followup:
+                    followup.followup_status = "Send Reminder"
+                    db.commit()
+                else:
+                    email.status = "Send Reminder"
+                    db.commit()
+                return {
+                    "email_id": email.email_id,
+                    "status": f"Need to send a reminder as the email was sent {days_difference} days ago",
+                    "days_since_sent": days_difference
+                }
         else:
             return {
                 "email_id": email.email_id,

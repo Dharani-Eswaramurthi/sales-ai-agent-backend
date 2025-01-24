@@ -188,7 +188,7 @@ def get_potential_companies(request: ProductRequest):
                 - Target Industries: {', '.join(request.target_industries) if request.target_industries else 'N/A'}
                 - Target Geographical Locations: {', '.join(request.target_geo_loc) if request.target_geo_loc else 'N/A'}
                 - Target Business Models: {', '.join(request.target_business_model) if request.target_business_model else 'N/A'}
-                - Addressing Pain Points: {', '.join(request.addressing_pain_points) if request.addressing_pain_points else 'N/A'}
+                - Addressing Pain Points: {', '.join(request.addressing_pain_points) if request.addressing_pain_points else 'N/A'} 
 
                 NOTE: STRICTLY, exclude any company names provided in the 'Existing Customers' list from the potential companies list.
 

@@ -26,12 +26,16 @@ from base64 import b64decode
 from Crypto.Cipher import AES
 from Crypto.Util.Padding import unpad
 from email_proposal import generate_email
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Database Configuration
-DATABASE_URL = "postgresql://user:sales%40123@db-status.postgres.database.azure.com/mail-status"
+DATABASE_URL = os.getenv("DATABASE_URL")
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=True, bind=engine)
-secret_key = os.environ.get('ENCRYPTION_KEY')
+secret_key = os.getenv('ENCRYPTION_KEY')
 
 Base = declarative_base()
 

@@ -138,7 +138,6 @@ class ProductRequest(BaseModel):
     product_name: str
     existing_customers: List[str] = None
     product_description: str = None
-    product_description: str = None
     target_min_emp_count: int = None
     target_max_emp_count: int = None
     target_industries: List[str] = None
@@ -179,7 +178,7 @@ def get_potential_companies(request: ProductRequest):
         raise HTTPException(status_code=500, detail="API Key not configured")
     
     prompt = f"""
-                Given the detailed product information and Ideal Client Profile (ICP) provided below, analyze and identify the top five companies with strong growth potential that are likely to be interested in this product. For each company, include the name, industry, and domain. Present the results in JSON format.
+                Given the detailed product information and Ideal Client Profile (ICP) provided below, analyze and identify the top five companies with strong growth potential that are likely to be interested in this product. For each company, include the name, industry, and domain. Exclude the companies that are existing as customers. Present the results in JSON format.
 
                 Product Information:
                 - Product Name: {request.product_name}

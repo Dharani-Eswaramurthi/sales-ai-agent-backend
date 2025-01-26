@@ -30,7 +30,7 @@ jobs:
       - name: Uninstall old libraries
         run: |
           pip freeze > old_requirements.txt
-          pip uninstall -r old_requirements.txt -y
+          if [ -s old_requirements.txt ]; then pip uninstall -r old_requirements.txt -y; fi
 
       - name: Install dependencies
         run: pip install -r requirements.txt

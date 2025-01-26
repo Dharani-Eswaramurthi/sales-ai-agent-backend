@@ -1,9 +1,9 @@
 import PyPDF2
-import openai
 from sentence_transformers import SentenceTransformer, util
 import faiss
 import numpy as np
 import os
+import requests
 
 # Step 1: Extract content from PDFs
 def extract_text_from_pdf(pdf_path):
@@ -37,8 +37,9 @@ def retrieve_relevant_content(query):
     relevant_doc_key = list(documents.keys())[I[0][0]]
     return documents[relevant_doc_key]
 
-# Step 3: Efficient prompting with retrieval using OpenAI
-openai.api_key = os.getenv("OPEN_AI_API_KEY")
+# Step 3: Efficient prompting with retrieval using Perplexity
+API_KEY = os.getenv("PERPLEXITY_API_KEY")
+BASE_URL = "https://api.perplexity.ai/chat/completions"
 
 def generate_email(query, situation, **kwargs):
     # Retrieve relevant content
@@ -53,53 +54,63 @@ def generate_email(query, situation, **kwargs):
     decision_maker_position = kwargs.get("decision_maker_position", "")
     req_info = kwargs.get("req_info", "")
     sender_name = kwargs.get("sender_name", "")
-      # New input for sender's name
-    sender_position = kwargs.get("sender_position", "")  # New input for sender's position
-    sender_company = kwargs.get("sender_company", "")  # New input for sender's company
+    sender_position = kwargs.get("sender_position", "")
+    sender_company = kwargs.get("sender_company", "")
 
     # Dynamic prompt construction
     prompt = f"""
-    Given the following input details, craft a professional and engaging business email:
+                You are an expert email composer, skilled in creating professional and engaging business emails tailored to specific situations. 
 
-    Use the provided document on crafting the {situation}: {context}
+                ### Context:
+                Refer to the provided document on crafting the {situation}: {context}
 
-    Inputs:
-    Product Description: {product_description}
-    Target Company Name: {company_name}
-    Decision Maker Name: {decision_maker}
-    Decision Maker Position: {decision_maker_position}
-    Target Company Details and Desicion Maker Details: {req_info}
-    Sender Name: {sender_name}
-    Sender Position: {sender_position}
-    Sender Company: {sender_company}
+                ### Inputs:
+                - **Product Description**: {product_description}
+                - **Target Company Name**: {company_name}
+                - **Decision Maker Name**: {decision_maker}
+                - **Decision Maker Position**: {decision_maker_position}
+                - **Target Company and Decision Maker Details**: {req_info}
+                - **Sender Name**: {sender_name}
+                - **Sender Position**: {sender_position}
+                - **Sender Company**: {sender_company}
 
-    Steps to Follow:
-    - Understand the provided context and input details.
-    - Compose a professional email tailored to the situation: {situation}.
-    - Ensure the email has a persuasive and engaging tone, formatted for professional communication.
-    
-    Output Format: Return the email content in JSON format with the following structure:
+                ### Instructions:
+                1. Analyze the context and input details thoroughly.
+                2. Compose a professional email tailored specifically to the situation: **{situation}**.
+                3. Ensure the email maintains a persuasive and engaging tone, suitable for professional communication.
+                4. Structure the email using appropriate HTML tags for formatting and clarity like <br/>, <strong>, for bulletings, and other necessary tags. Include proper spacing and alignment based on the context.
 
-    "subject": "Customized Subject Based on Situation",
-    "body": '''
-    ( Craft the email body on behalf of the sender based on the situation, inputs, and context. Use the best approach for the given scenario. )
-    '''
-    Important: Ensure the email body uses triple quotes (''') for multi-line text. Return only the JSON output without any additional text or content.
-    """
+                ### Output Format:
+                Return the email content in JSON format with the following structure:
+                
+                "subject": "Customized Subject Based on Situation",
+                "body": "(Craft the email body on behalf of the sender based on the situation, inputs, and context. Use the best approach for the given scenario.)"
+                
+                Important: Ensure that only the JSON response is returned without any additional text or content with proper JSON formatting so that it is ready to conevrt from string response to json.
+                """
 
-    messages = [
-        {"role": "system", "content": prompt},
-        {"role": "user", "content": query}
-    ]
+    payload = {
+        "model": "llama-3.1-sonar-large-128k-online",
+        "messages": [
+            {"role": "system", "content": prompt},
+            {"role": "user", "content": query}
+        ],
+        "max_tokens": 650,
+        "temperature": 0.7
+    }
 
-    # Generate the email using OpenAI API
-    response = openai.ChatCompletion.create(
-        model="gpt-4",  # Best GPT model for this task
-        messages=messages,
-        max_tokens=400,
-        temperature=0.7
-    )
-    return response
+    headers = {
+        "Authorization": f"Bearer {API_KEY}",
+        "Content-Type": "application/json",
+    }
+
+    try:
+        response = requests.post(BASE_URL, json=payload, headers=headers)
+        response.raise_for_status()
+        return response.json()
+    except requests.exceptions.RequestException as e:
+        print(f"Error: {e}")
+        return None
 
 # Usage example
 # query = "Breakup on our previous discussion"

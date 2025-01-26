@@ -1,20 +1,19 @@
 import ast
-from fastapi import FastAPI, HTTPException, Form
+from fastapi import FastAPI, HTTPException, Form, Depends
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
-from sqlalchemy import Column, String, TIMESTAMP, create_engine, text, ForeignKey, Integer
+from pydantic import BaseModel, EmailStr, Field
+from sqlalchemy import Column, String, TIMESTAMP, create_engine, text, ForeignKey, Integer, Boolean
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import sessionmaker, Session
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart 
-from typing import List
+from typing import List, Dict
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from email_verifier import find_valid_email
 from google_api import google_search
 from info_gather import get_company_and_person_info
-import openai
 import requests
 import os
 import json
@@ -27,6 +26,10 @@ from Crypto.Cipher import AES
 from Crypto.Util.Padding import unpad
 from email_proposal import generate_email
 from dotenv import load_dotenv
+import random
+from passlib.context import CryptContext
+import jwt
+from typing import Optional
 
 # Load environment variables from .env file
 load_dotenv()
@@ -38,6 +41,29 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=True, bind=engine)
 secret_key = os.getenv('ENCRYPTION_KEY')
 
 Base = declarative_base()
+
+# JWT Configuration
+SECRET_KEY = os.getenv("SECRET_KEY", "your_secret_key")
+ALGORITHM = "HS256"
+
+# Password hashing configuration
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+def hash_password(password: str) -> str:
+    return pwd_context.hash(password)
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    return pwd_context.verify(plain_password, hashed_password)
+
+def create_access_token(data: dict, expires_delta: timedelta = None):
+    to_encode = data.copy()
+    if expires_delta:
+        expire = datetime.utcnow() + expires_delta
+    else:
+        expire = datetime.utcnow() + timedelta(minutes=15)
+    to_encode.update({"exp": expire})
+    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    return encoded_jwt
 
 # Email Tracking Model
 class EmailStatus(Base):
@@ -94,9 +120,25 @@ class ProductDetails(Base):
     target_business_model = Column(String, nullable=True)
     addressing_pain_points = Column(String, nullable=True)
 
+# User Model
+class User(Base):
+    __tablename__ = "users"
+    id = Column(String, primary_key=True, index=True)
+    username = Column(String, unique=True, index=True)
+    password = Column(String)
+    email = Column(String)
+    first_name = Column(String)
+    last_name = Column(String)
+    company_name = Column(String)  # Change to list
+    position = Column(String)  # Change to dictionary
+    otp = Column(Integer)
+    is_verified = Column(Boolean, default=False)  # New field
+
+Base.metadata.create_all(bind=engine)
+
 # Email Configuration
-SMTP_SERVER = "smtpout.secureserver.net"
-SMTP_PORT = 587
+SMTP_SERVER = os.getenv('SMTP_SERVER')
+SMTP_PORT = os.getenv('SMTP_PORT')
 USERNAME = os.environ.get('EMAIL_USERNAME')
 PASSWORD = os.environ.get('EMAIL_PASSWORD')
 
@@ -107,7 +149,7 @@ app = FastAPI()
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "https://sales-ai-agent-crm-fgbna0ghdrhxb5hp.centralindia-01.azurewebsites.net"],
+    allow_origins=["http://localhost:3000", "https://sales-ai-agent-crm-fgbna0ghdrhxb5hp.centralindia-01.azurewebsites.net", "https://lead-stream.heuro.in"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -142,8 +184,8 @@ class ProductRequest(BaseModel):
     product_name: str
     existing_customers: List[str] = None
     product_description: str = None
-    target_min_emp_count: int = None
-    target_max_emp_count: int = None
+    target_min_emp_count: Optional[int] = None
+    target_max_emp_count: Optional[int] = None
     target_industries: List[str] = None
     target_geo_loc: List[str] = None
     target_business_model: List[str] = None
@@ -171,10 +213,145 @@ class ReminderRequest(BaseModel):
 class TrackedEmail(BaseModel):
     id: str
 
+class UserCreate(BaseModel):
+    id: str = None
+    username: str = Field(..., min_length=3, max_length=50)
+    password: str = Field(..., min_length=6)
+    email: EmailStr
+    first_name: str = Field(..., min_length=1, max_length=50)
+    last_name: str = Field(..., min_length=1, max_length=50)
+    company_name: List[str] = Field(..., min_items=1)  # Change to list
+    position: Dict[str, List[str]] = Field(..., min_items=1)  # Change to dictionary with list of positions as values
+    otp: int = None
+
+class UserLogin(BaseModel):
+    email: EmailStr
+    password: str
+
+class VerifyOtpRequest(BaseModel):
+    email: EmailStr
+    otp: int
+
+class PositionEditRequest(BaseModel):
+    company_name: str
+    position: List[str]
+
+class CompanyEditRequest(BaseModel):
+    company_name: str
+    new_company_name: Optional[str] = None
+    position: Dict[str, List[str]]
+
+
+
 # OpenAI and Perplexity Configuration
 API_KEY = os.getenv("PERPLEXITY_API_KEY")
 BASE_URL = "https://api.perplexity.ai/chat/completions"
-openai.api_key = os.getenv("OPEN_AI_API_KEY")
+
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+
+def decrypt_password(encrypted_password: str) -> str:
+    secret_key = os.environ.get("ENCRYPTION_KEY")
+    iv = os.environ.get("ENCRYPTION_IV")
+    if not secret_key or not iv:
+        raise ValueError("ENCRYPTION_KEY or ENCRYPTION_IV environment variable is not set")
+    
+    ciphertext = b64decode(encrypted_password)
+    derived_key = b64decode(secret_key)
+    cipher = AES.new(derived_key, AES.MODE_CBC, iv.encode('utf-8'))
+    decrypted_data = cipher.decrypt(ciphertext)
+    return unpad(decrypted_data, 16).decode("utf-8")
+
+
+@app.post("/register/")
+def register_user(user: UserCreate, db: Session = Depends(get_db)):
+    db_user = db.query(User).filter(User.username == user.username).first()
+    if db_user:
+        raise HTTPException(status_code=400, detail="Username already registered")
+    otp = random.randint(100000, 999999)
+    user_id = str(uuid.uuid4())  # Generate a unique UUID for the user ID
+    new_user = User(
+        id=user_id,  # Set the user ID
+        username=user.username,
+        password=hash_password(decrypt_password(user.password)),
+        email=user.email,
+        first_name=user.first_name,
+        last_name=user.last_name,
+        company_name=json.dumps(user.company_name),  # Convert list to JSON string
+        position=json.dumps(user.position),  # Convert dictionary with list of strings to JSON string
+        otp=otp,
+        is_verified=False  # Set is_verified to False initially
+    )
+    db.add(new_user)
+    db.commit()
+    db.refresh(new_user)
+    
+    # Send OTP email
+    msg = MIMEMultipart()
+    msg['From'] = os.getenv('EMAIL_USERNAME')
+    msg['To'] = user.email
+    msg['Subject'] = "Your OTP Code"
+    body = f"Your OTP code is {otp}"
+    msg.attach(MIMEText(body, 'plain'))
+
+    try:
+        with smtplib.SMTP(os.getenv('SMTP_SERVER'), os.getenv('SMTP_PORT')) as server:
+            server.starttls()
+            server.login(os.getenv('EMAIL_USERNAME'), os.getenv('EMAIL_PASSWORD'))
+            server.sendmail(os.getenv('EMAIL_USERNAME'), user.email, msg.as_string())
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error sending email: {e}")
+
+    return {"message": "User registered successfully. Please verify your email with the OTP sent."}
+
+@app.post("/login/")
+def login_user(user: UserLogin, db: Session = Depends(get_db)):
+    db_user = db.query(User).filter(User.email == user.email).first()
+    # convert object to dict
+    if not db_user or not verify_password(decrypt_password(user.password), db_user.password):
+        raise HTTPException(status_code=400, detail="Invalid credentials")
+    if not db_user.is_verified:
+        raise HTTPException(status_code=400, detail="Please verify your email with the OTP sent before logging in.")
+    access_token = create_access_token(data={"name": db_user.username, "user_id": db_user.id})
+    return {"access_token": access_token, "token_type": "bearer"}
+
+@app.post("/verify_otp/")
+def verify_otp(request: VerifyOtpRequest, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.email == request.email, User.otp == request.otp).first()
+    print("USER: ", user)
+    if not user:
+        raise HTTPException(status_code=400, detail="Invalid OTP")
+    
+    user.otp = 0  # Clear the OTP after successful verification
+    user.is_verified = True  # Set is_verified to True
+    db.commit()
+    
+    access_token = create_access_token(data={"sub": user.username})
+    return {"access_token": access_token, "token_type": "bearer"}
+
+@app.get("/user")
+def get_user(user_id: str, db: Session = Depends(get_db)):
+    try:
+        # extract First Name, Last Name, email, company name, position
+        user = db.query(User).filter(User.id == user_id).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        return {
+            "first_name": user.first_name,
+            "last_name": user.last_name,
+            "email": user.email,
+            "company_name": json.loads(user.company_name),  # Convert JSON string to list
+            "position": json.loads(user.position)  # Convert JSON string to dictionary
+        }
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching user: {e}")
 
 @app.post("/potential-companies")
 def get_potential_companies(request: ProductRequest):
@@ -182,29 +359,33 @@ def get_potential_companies(request: ProductRequest):
         raise HTTPException(status_code=500, detail="API Key not configured")
     
     prompt = f"""
-                Given the detailed product information and Ideal Client Profile (ICP) provided below, analyze and identify the top five companies with strong growth potential that are likely to be interested in this product. For each company, include the name, industry, and domain. Present the results in JSON format.
+                Given the detailed product information and Ideal Client Profile (ICP) provided below, analyze and identify the top five companies with strong growth potential that are likely to be interested in this product. Each identified company must align with the specified target company information, including employee count, industry, geographical location, and business model. Exclude any companies listed in the 'Existing Customers' from your results.
 
-                Product Information:
-                - Product Name: {request.product_name}
-                - Product Description: {request.product_description or 'N/A'}
-                - Existing Customers: {', '.join(request.existing_customers) if request.existing_customers else 'N/A'}
-                - Target Employee Count: {request.target_min_emp_count or 'N/A'} - {request.target_max_emp_count or 'N/A'}
-                - Target Industries: {', '.join(request.target_industries) if request.target_industries else 'N/A'}
-                - Target Geographical Locations: {', '.join(request.target_geo_loc) if request.target_geo_loc else 'N/A'}
-                - Target Business Models: {', '.join(request.target_business_model) if request.target_business_model else 'N/A'}
-                - Addressing Pain Points: {', '.join(request.addressing_pain_points) if request.addressing_pain_points else 'N/A'} 
+                ### Product Information:
+                - **Product Name**: {request.product_name}
+                - **Product Description**: {request.product_description or 'N/A'}
+                - **Existing Customers**: {', '.join(request.existing_customers) if request.existing_customers else 'N/A'}
+                - **Target Industries**: {', '.join(request.target_industries) if request.target_industries else 'N/A'}
+                - **Target Geographical Locations**: {', '.join(request.target_geo_loc) if request.target_geo_loc else 'N/A'}
+                - **Target Business Models**: {', '.join(request.target_business_model) if request.target_business_model else 'N/A'}
+                - **Addressing Pain Points**: {', '.join(request.addressing_pain_points) if request.addressing_pain_points else 'N/A'} 
 
-                NOTE: STRICTLY, exclude any company names provided in the 'Existing Customers' list from the potential companies list.
+                ### Output Format:
+                Provide only a list of dictionaries, each containing:
+                - name: Company name
+                - industry: Industry type
+                - domain: Company's domain name formatted like example.com
 
-                Output Format:
-                (Provide only the list of dictionaries, each containing the name, industry, and company's domain name of the top 5 potential companies, no extra content. Use 'name', 'industry', and 'domain' as the keys. For the domain, format like example.com.)
+                Ensure that the output strictly adheres to this format and includes only the top 5 potential companies that meet all specified criteria. 
+                NOTE: STRICTLY, exclude the companies that are mentioned in the "Existing Customers". Provide only the JSON as output. Do not include any additional text or content in the output.
                 """
+
 
 
     payload = {
         "model": "llama-3.1-sonar-large-128k-online",
         "messages": [{"role": "user", "content": prompt}],
-        "max_tokens": 200,
+        "max_tokens": 300,
     }
 
     try:
@@ -323,7 +504,6 @@ def get_email_proposal(request: EmailProposalRequest):
     if not API_KEY:
         raise HTTPException(status_code=500, detail="API Key not configured")
     
-    
     print("Fetching email for ", request.decision_maker)
     company_name = request.company_name
     ref_dm = request.decision_maker
@@ -359,15 +539,11 @@ def get_email_proposal(request: EmailProposalRequest):
                     "sender_company": {request.sender_company}
                 }
 
-
         response = generate_email(query, situation, **kwargs)
 
         print("Email template generated for", ref_dm)
 
-        # print(response['choices'][0]['message']['content'])
-        
         return format_response(response)
-        
 
 def format_response(response):
     # Parse and clean JSON output
@@ -375,31 +551,29 @@ def format_response(response):
     cleaned_json_string = re.sub(r'```(json|)', '', json_string).strip()
     try:
         # Ensure the JSON string is properly formatted
-        if not cleaned_json_string.startswith('{') or not cleaned_json_string.endswith('}'):
+        if not (cleaned_json_string.startswith('{') and cleaned_json_string.endswith('}')) and \
+           not (cleaned_json_string.startswith('[') and cleaned_json_string.endswith(']')):
             raise ValueError("Invalid JSON format")
         return json.loads(cleaned_json_string)
     except (json.JSONDecodeError, ValueError) as e:
         print(f"Error parsing JSON response: {e}")
         # Attempt to fix common formatting issues
         cleaned_json_string = re.sub(r'(?<!\\)\n', '\\n', cleaned_json_string)
+        cleaned_json_string = re.sub(r'[\x00-\x1f\x7f-\x9f]', '', cleaned_json_string)  # Remove control characters
         try:
+            # Handle unterminated string literals
+            if cleaned_json_string.count('"') % 2 != 0:
+                cleaned_json_string += '"'
+            # Ensure proper JSON formatting
+            cleaned_json_string = re.sub(r'(?<!\\)"\s*:\s*(?<!\\)"', '": "', cleaned_json_string)
+            cleaned_json_string = re.sub(r'(?<!\\)"\s*,\s*(?<!\\)"', '", "', cleaned_json_string)
             return ast.literal_eval(cleaned_json_string)
         except (SyntaxError, ValueError) as e:
             print(f"Error evaluating JSON response: {e}")
+            # Log the problematic response for debugging
+            print(f"Problematic response: {json_string}")
             raise HTTPException(status_code=500, detail="Invalid response format from API")
 
-
-def decrypt_password(encrypted_password: str) -> str:
-    secret_key = os.environ.get("ENCRYPTION_KEY")
-    iv = os.environ.get("ENCRYPTION_IV")
-    if not secret_key or not iv:
-        raise ValueError("ENCRYPTION_KEY or ENCRYPTION_IV environment variable is not set")
-    
-    ciphertext = b64decode(encrypted_password)
-    derived_key = b64decode(secret_key)
-    cipher = AES.new(derived_key, AES.MODE_CBC, iv.encode('utf-8'))
-    decrypted_data = cipher.decrypt(ciphertext)
-    return unpad(decrypted_data, 16).decode("utf-8")
 
 @app.post("/send_email")
 async def send_email(email: EmailData, user_email: str, encrypted_password: str):
@@ -906,6 +1080,101 @@ def update_product(product_id: str, request: ProductRequest):
         raise HTTPException(status_code=500, detail=f"Error updating product: {e}")
     finally:
         db.close()
+
+@app.post("/add_company/")
+def add_company(user_id: str, request: CompanyEditRequest, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # user.company_name is a list present as string in the database so we need to convert it to a list
+    
+    company_names = json.loads(user.company_name)
+    positions = request.position
+    
+    if request.company_name not in company_names:
+        company_names.append(request.company_name)
+
+    user.company_name = json.dumps(company_names)
+    user.position = json.dumps(positions)
+
+    
+    db.commit()
+    return {"message": "Company and positions added successfully"}
+
+@app.put("/edit_company/")
+def edit_company(user_id: str, request: CompanyEditRequest, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    # replace the company name with the new company name in the company_name list and position dictionary
+    company_names = json.loads(user.company_name)
+    positions = user.position
+
+    if request.company_name not in company_names:
+        raise HTTPException(status_code=404, detail="Company not found")
+    
+    company_names[company_names.index(request.company_name)] = request.new_company_name
+
+    user.company_name = json.dumps(company_names)
+    user.position = json.dumps(positions)
+
+    db.commit()
+    return {"message": "Company updated successfully"}
+
+@app.delete("/remove_company/")
+def remove_company(user_id: str, company_name: str, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    company_names = json.loads(user.company_name)
+    positions = json.loads(user.position)
+    
+    if company_name not in company_names:
+        raise HTTPException(status_code=404, detail="Company not found")
+    
+    company_names.remove(company_name)
+    positions = {k: v for k, v in positions.items() if k != company_name}
+        
+    
+    user.company_name = json.dumps(company_names)
+    user.position = json.dumps(positions)
+    
+    db.commit()
+    return {"message": "Company removed successfully"}
+
+
+@app.put("/edit_positions/")
+def edit_positions(user_id: str, request: PositionEditRequest, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    company_name = request.company_name
+    position = request.position
+
+    positions = json.loads(user.position)
+
+    if company_name not in positions:
+        raise HTTPException(status_code=404, detail="Company not found")
+    
+    # Update the positions for the company
+    positions[company_name] = position
+
+    if positions[company_name] == []:
+        # remove the company from the company_name list
+        company_names = json.loads(user.company_name)
+        company_names.remove(company_name)
+        user.company_name = json.dumps(company_names)
+        # remove the company from the positions dictionary
+        positions.pop(company_name, None)
+   
+    user.position = json.dumps(positions)
+
+    db.commit()
+    return {"message": "Position updated successfully"}
 
 if __name__ == "__main__":
     import uvicorn

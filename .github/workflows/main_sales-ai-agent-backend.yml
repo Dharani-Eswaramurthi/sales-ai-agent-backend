@@ -27,6 +27,11 @@ jobs:
           python -m venv venv
           source venv/bin/activate
       
+      - name: Uninstall old libraries
+        run: |
+          pip freeze > old_requirements.txt
+          pip uninstall -r old_requirements.txt -y
+
       - name: Install dependencies
         run: pip install -r requirements.txt
         
@@ -59,7 +64,6 @@ jobs:
       - name: Unzip artifact for deployment
         run: unzip release.zip
 
-      
       - name: 'Deploy to Azure Web App'
         uses: azure/webapps-deploy@v3
         id: deploy-to-webapp

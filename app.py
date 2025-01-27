@@ -69,6 +69,7 @@ def create_access_token(data: dict, expires_delta: timedelta = None):
 class EmailStatus(Base):
     __tablename__ = "email_status"
     id = Column(String, primary_key=True)
+    user_id = Column(String, ForeignKey('users.id', ondelete='CASCADE'))  # Add user_id field
     dm_name = Column(String, nullable=False)
     company_name = Column(String, nullable=False)
     dm_position = Column(String, nullable=False)
@@ -89,6 +90,7 @@ class EmailStatus(Base):
 class FollowupStatus(Base):
     __tablename__ = "followup_status"
     followup_id = Column(String, ForeignKey('email_status.id', ondelete='CASCADE'), primary_key=True)
+    user_id = Column(String, ForeignKey('users.id', ondelete='CASCADE'))  # Add user_id field
     email_uid = Column(String, nullable=False)
     followup_date = Column(TIMESTAMP, nullable=False)
     followup_status = Column(String, nullable=False)
@@ -109,7 +111,8 @@ class FollowupStatus(Base):
 # Product Details Model
 class ProductDetails(Base):
     __tablename__ = "product_details"
-    product_id = Column(String, primary_key=True, default=text("nextval('product_details_product_id_seq'::regclass)"))
+    product_id = Column(String, primary_key=True, default='product_'+str(uuid.uuid4()))
+    user_id = Column(String, ForeignKey('users.id', ondelete='CASCADE'))  # Add user_id field
     product_name = Column(String, nullable=False)
     existing_customers = Column(String, nullable=True)
     product_description = Column(String, nullable=True)
@@ -132,7 +135,24 @@ class User(Base):
     company_name = Column(String)  # Change to list
     position = Column(String)  # Change to dictionary
     otp = Column(Integer)
+    product_limit = Column(Integer, default=1)
+    company_limit = Column(Integer, default=10)
     is_verified = Column(Boolean, default=False)  # New field
+
+# Generated Company Model
+class GeneratedCompany(Base):
+    __tablename__ = "generated_companies"
+    id = Column(String, primary_key=True, default='generatedCompany_'+str(uuid.uuid4()))
+    user_id = Column(String, ForeignKey('users.id', ondelete='CASCADE'))
+    product_id = Column(String, ForeignKey('product_details.product_id', ondelete='CASCADE'))
+    company_name = Column(String, nullable=False)
+    industry = Column(String, nullable=True)
+    domain = Column(String, nullable=True)
+    status = Column(String, default="Not Contacted")
+    decision_maker_name = Column(String, nullable=True)  # New field
+    decision_maker_email = Column(String, nullable=True)  # New field
+    decision_maker_position = Column(String, nullable=True)  # New field
+    failed_company = Column(Boolean, default=False)  # New field
 
 Base.metadata.create_all(bind=engine)
 
@@ -150,6 +170,7 @@ app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
+        "http://localhost:3000",
         "https://lead-stream.heuro.in",  # Correct URL without trailing slash
         "https://sales-ai-agent-crm-fgbna0ghdrhxb5hp.centralindia-01.azurewebsites.net"
     ],
@@ -193,6 +214,7 @@ class ProductRequest(BaseModel):
     target_geo_loc: List[str] = None
     target_business_model: List[str] = None
     addressing_pain_points: List[str] = None
+    limit: int = 5
 
 class DecisionMakerRequest(BaseModel):
     company_name: str
@@ -218,7 +240,6 @@ class TrackedEmail(BaseModel):
 
 class UserCreate(BaseModel):
     id: str = None
-    username: str = Field(..., min_length=3, max_length=50)
     password: str = Field(..., min_length=6)
     email: EmailStr
     first_name: str = Field(..., min_length=1, max_length=50)
@@ -226,6 +247,8 @@ class UserCreate(BaseModel):
     company_name: List[str] = Field(..., min_items=1)  # Change to list
     position: Dict[str, List[str]] = Field(..., min_items=1)  # Change to dictionary with list of positions as values
     otp: int = None
+    product_limit: int = 1
+    user_company_limit: int = 10
 
 class UserLogin(BaseModel):
     email: EmailStr
@@ -242,9 +265,19 @@ class PositionEditRequest(BaseModel):
 class CompanyEditRequest(BaseModel):
     company_name: str
     new_company_name: Optional[str] = None
-    position: Dict[str, List[str]]
+    position: Dict[str, List[str]] = None
 
+class GeneratedCompanyRequest(BaseModel):
+    product_id: str
+    companies: List[Dict[str, Optional[str]]]  # Allow Optional[str] for decision maker fields
 
+class GeneratedCompanyUpdateRequest(BaseModel):
+    company_id: str
+    status: str
+    decision_maker_name: Optional[str] = None  # New field
+    decision_maker_email: Optional[str] = None  # New field
+    decision_maker_position: Optional[str] = None  # New field
+    failed_company: Optional[bool] = False  # New field
 
 # OpenAI and Perplexity Configuration
 API_KEY = os.getenv("PERPLEXITY_API_KEY")
@@ -277,7 +310,7 @@ def register_user(user: UserCreate, db: Session = Depends(get_db)):
     if db_user:
         raise HTTPException(status_code=400, detail="User already registered")
     otp = random.randint(100000, 999999)
-    user_id = str(uuid.uuid4())  # Generate a unique UUID for the user ID
+    user_id = 'user_'+str(uuid.uuid4())  # Generate a unique UUID for the user ID
     new_user = User(
         id=user_id,  # Set the user ID
         username=user.email.split('@')[0],  # Use the email prefix as the username
@@ -350,6 +383,8 @@ def get_user(user_id: str, db: Session = Depends(get_db)):
             "last_name": user.last_name,
             "email": user.email,
             "company_name": json.loads(user.company_name),  # Convert JSON string to list
+            "product_limit": user.product_limit,
+            "company_limit": user.company_limit,
             "position": json.loads(user.position)  # Convert JSON string to dictionary
         }
     
@@ -379,7 +414,7 @@ def get_potential_companies(request: ProductRequest):
                 - industry: Industry type
                 - domain: Company's domain name formatted like example.com
 
-                Ensure that the output strictly adheres to this format and includes only the top 5 potential companies that meet all specified criteria. 
+                Ensure that the output strictly adheres to this format and includes only the top {request.limit} potential companies that meet all specified criteria. 
                 NOTE: STRICTLY, exclude the companies that are mentioned in the "Existing Customers". Provide only the JSON as output. Do not include any additional text or content in the output.
                 """
 
@@ -411,12 +446,12 @@ def get_potential_decision_makers(request: DecisionMakerRequest):
     
     print("Fetching decision makers for ", request.company_name)
     comp_name = request.company_name
-    api_key = 'AIzaSyDWQdpxZHM7Zpft2tMJ_1olqoXthQrlXfo'
+    api_key = 'AIzaSyCVE8h9gXjnd_ztGOoTP107sZPBMlMW0Gg'
     search_engine_id = '82bd22c03bc644768'
     positions = ['CEO', 'Co-CEO', 'VP']
     results = []
     for i in positions:
-        query = f"Present {i} at {comp_name} site:linkedin.com"
+        query = f"{i} at {comp_name} site:linkedin.com"
         result = google_search(api_key, search_engine_id, query, limit=5)  # Set limit to 5
         # Process results
         ref_res = []
@@ -429,7 +464,6 @@ def get_potential_decision_makers(request: DecisionMakerRequest):
 
     print("Results fetched ", results)
 
-
     scrapped_docs = []
 
     # Process results
@@ -438,17 +472,22 @@ def get_potential_decision_makers(request: DecisionMakerRequest):
             for i in value:
                 scrapped_docs.append({'name': i['title'], 'position': key})
 
+    if not scrapped_docs:
+        raise HTTPException(status_code=404, detail="No decision makers found for the company")
+
     print("Scrapped CEO, Co-CEO and VP of the company ", comp_name, " from LinkedIn: ", scrapped_docs)
     
     print("Decision makers details fetched for ", comp_name)
 
     prompt = f"""
-                Given the list of Scrapped CEO, Co-CEO and VP of the company {comp_name} from LinkedIn, please analyse identify the top 3 decision makers who would be the responsible for business decisions. For each decision maker, include the name and title only.
+                Given the list of Scrapped Decision Makers of the company {comp_name} from LinkedIn, please analyse identify the top 3 decision makers who would be the responsible for business decisions. For each decision maker, include the name and title only.
 
-                List of Scrapped CEO, Co-CEO and VP of the company {comp_name} from LinkedIn: {scrapped_docs}
+                List of Scrapped Decision Makers of the company {comp_name} from LinkedIn: {scrapped_docs}
 
                 Output Format:
-                ( provide only the dictionary as output of the company {comp_name} with name and title as the key and corresponding value for each decision maker. Strictly without any other extra text or content. )
+                ( Provide only the dictionary as output of the company {comp_name} with name and title as the key and corresponding value for each decision maker. )
+
+                NOTE: STRICTLY, Do not add any other text or explanation except the dictionary in the output.
 
                 """
     
@@ -487,7 +526,12 @@ def get_potential_decision_makers(request: DecisionMakerRequest):
         ref_dm = i
         dm_pos = api_response[i]
 
-        valid_mail = find_valid_email(ref_dm.split(' ')[0], ref_dm.split(' ')[1], request.domain_name)
+        valid_mail = ''
+
+        if len(ref_dm.split(' ')) > 1:
+            valid_mail = find_valid_email(ref_dm.split(' ')[0], ref_dm.split(' ')[1], request.domain_name)
+        else:
+            valid_mail = find_valid_email(ref_dm.split(' ')[0], ref_dm, request.domain_name)
 
         if valid_mail:
             company['decision_maker'] = i
@@ -498,6 +542,9 @@ def get_potential_decision_makers(request: DecisionMakerRequest):
             company['decision_maker'] = api_response
             company['decision_maker_mail'] = None
             company['decision_maker_position'] = None
+            # even in the last iteration if the email is not found, raise an exception
+            if i == list(api_response.keys())[-1]:
+                raise HTTPException(status_code=404, detail="Emails not found for this company")
             continue
             
     return company
@@ -579,7 +626,7 @@ def format_response(response):
 
 
 @app.post("/send_email")
-async def send_email(email: EmailData, user_email: str, encrypted_password: str):
+async def send_email(email: EmailData, user_id: str, user_email: str, encrypted_password: str, db: Session = Depends(get_db)):
     recipient_name = email.recipient_name
     company_name = email.company_name
     dm_position = email.dm_position
@@ -605,13 +652,14 @@ async def send_email(email: EmailData, user_email: str, encrypted_password: str)
         raise HTTPException(status_code=400, detail="Invalid encrypted password")
 
     # Generate unique tracking ID
-    tracking_id = str(uuid.uuid4())
+    tracking_id = 'tracking_'+str(uuid.uuid4())
 
     # Save tracking info in the database
     try:
         db = SessionLocal()
         new_email = EmailStatus(
             id=tracking_id,
+            user_id=user_id,  # Set the user_id
             dm_name=recipient_name,
             company_name=company_name,
             dm_position=dm_position,
@@ -754,16 +802,10 @@ async def track(tracking_id: str, response: str):
         db.close()
 
 @app.post("/email-reminder")
-def get_email_reminder(tracking_id: str, request: ReminderRequest):
-    if not API_KEY:
-        raise HTTPException(status_code=500, detail="API Key not configured")
-    
-    db = SessionLocal()
-
-    email = db.query(EmailStatus).filter(EmailStatus.id == tracking_id).first()
-
+def get_email_reminder(tracking_id: str, user_id: str, request: ReminderRequest, db: Session = Depends(get_db)):
+    email = db.query(EmailStatus).filter(EmailStatus.id == tracking_id, EmailStatus.user_id == user_id).first()
     if not email:
-        raise HTTPException(status_code=404, detail="Email not found")
+        raise HTTPException(status_code=404, detail="Email not found or you do not have permission to send a reminder for this email")
     
     company_name = email.company_name
     decision_maker = email.dm_name
@@ -829,14 +871,15 @@ def update_followup(followup_id: str, followup_field: str, field_value: str):
 
 
 @app.post("/send_followup_email")
-async def send_followup_email(user_email: str, encrypted_password: str, followup: FollowupData):
+async def send_followup_email(user_id: str, user_email: str, encrypted_password: str, followup: FollowupData, db: Session = Depends(get_db)):
     db = SessionLocal()
     try:
-        followup_data = db.query(FollowupStatus).filter(FollowupStatus.email_uid == followup.email_uid).first()
+        followup_data = db.query(FollowupStatus).filter(FollowupStatus.email_uid == followup.email_uid, FollowupStatus.user_id == user_id).first()
         if not followup_data:
             # insert a followup mail
             new_followup = FollowupStatus(
-                followup_id=str(uuid.uuid4()),
+                followup_id='followup_'+str(uuid.uuid4()),
+                user_id=user_id,  # Set the user_id
                 email_uid=followup.email_uid,
                 followup_date=datetime.utcnow(),
                 followup_status="Not Responded",
@@ -907,11 +950,9 @@ async def send_followup_email(user_email: str, encrypted_password: str, followup
         db.close()
 
 @app.get("/status")
-def status():
+def status(user_id: str, db: Session = Depends(get_db)):
     # Fetch tracked emails
-    db = SessionLocal()
-    tracked_emails = db.query(EmailStatus).all()
-    db.close()
+    tracked_emails = db.query(EmailStatus).filter(EmailStatus.user_id == user_id).all()
     return {
         "tracked_emails": [
             {
@@ -927,9 +968,8 @@ def status():
     } 
 
 @app.get("/fetch-mail-status")
-def fetch_mail_status():
-    db = SessionLocal()
-    email_statuses = db.query(EmailStatus).all()
+def fetch_mail_status(user_id: str, db: Session = Depends(get_db)):
+    email_statuses = db.query(EmailStatus).filter(EmailStatus.user_id == user_id).all()
     product_details = {product.product_id: product.product_name for product in db.query(ProductDetails).all()}
     followup = {followup.email_uid: {"status": followup.followup_status,
                                      "followup_id": followup.followup_id,
@@ -970,19 +1010,19 @@ def fetch_mail_status():
     return result
 
 @app.get("/email-status-check")
-def check_email_status(tracking_id: str):
+def check_email_status(tracking_id: str, user_id: str, db: Session = Depends(get_db)):
     current_time = datetime.utcnow()
 
     # Open the session
     db = SessionLocal()
     try:
-        email = db.query(EmailStatus).filter(EmailStatus.id == tracking_id).first()
+        email = db.query(EmailStatus).filter(EmailStatus.id == tracking_id, EmailStatus.user_id == user_id).first()
         print("Email: ", email)
         followup = db.query(FollowupStatus).filter(FollowupStatus.email_uid == tracking_id).first()
         print("Followup: ", followup)
 
         if not email:
-            return {"error": "Email with the provided tracking ID not found."}
+            return {"error": "Email with the provided tracking ID not found or you do not have permission to check the status of this email"}
 
         if followup:
             date_sent = followup.followup_date
@@ -1019,26 +1059,27 @@ def check_email_status(tracking_id: str):
         db.close()
 
 @app.delete("/delete-entity/{id}")
-def delete_entity(id: str):
-    db = SessionLocal()
-    try:
-        email_entry = db.query(EmailStatus).filter(EmailStatus.id == id).first()
-        if not email_entry:
-            raise HTTPException(status_code=404, detail="Entity not found")
-        db.delete(email_entry)
-        db.commit()
-        return {"message": "Entity deleted successfully"}
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(status_code=500, detail=f"Error deleting entity: {e}")
-    finally:
-        db.close()
+def delete_entity(id: str, user_id: str, db: Session = Depends(get_db)):
+    email_entry = db.query(EmailStatus).filter(EmailStatus.id == id, EmailStatus.user_id == user_id).first()
+    if not email_entry:
+        raise HTTPException(status_code=404, detail="Entity not found or you do not have permission to delete this entity")
+    db.delete(email_entry)
+    db.commit()
+    return {"message": "Entity deleted successfully"}
 
 @app.post("/add_product")
-def add_product(request: ProductRequest):
-    db = SessionLocal()
+def add_product(user_id: str, request: ProductRequest, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Check if the user has reached the product limit
+    if user.product_limit <= 0:
+        raise HTTPException(status_code=400, detail="Product limit reached. Please upgrade your plan to add more products")
+
     try:
         new_product = ProductDetails(
+            user_id=user_id,  # Set the user_id
             product_name=request.product_name,
             existing_customers=request.existing_customers,
             product_description=request.product_description,
@@ -1049,6 +1090,7 @@ def add_product(request: ProductRequest):
             target_business_model=request.target_business_model,
             addressing_pain_points=request.addressing_pain_points
         )
+        user.product_limit -= 1
         db.add(new_product)
         db.commit()
         return {"message": "Product added successfully", "product_id": new_product.product_id}
@@ -1058,12 +1100,10 @@ def add_product(request: ProductRequest):
     finally:
         db.close()
 
-
 @app.get("/get_products")
-def get_products():
-    db = SessionLocal()
+def get_products(user_id: str, db: Session = Depends(get_db)):
     try:
-        products = db.query(ProductDetails).all()
+        products = db.query(ProductDetails).filter(ProductDetails.user_id == user_id).all()
         return [
             {
                 "product_id": product.product_id,
@@ -1075,7 +1115,7 @@ def get_products():
                 "target_industries": product.target_industries,
                 "target_geo_loc": product.target_geo_loc,
                 "target_business_model": product.target_business_model,
-                "addressing_pain_points": product.addressing_pain_points
+                "addressing_pain_points": product.addressing_pain_points,
             }
             for product in products
         ]
@@ -1083,84 +1123,70 @@ def get_products():
         db.close()
 
 @app.get("/get_single_product/{product_id}")
-def get_existing_customers(product_id: str):
-    db = SessionLocal()
-    try:
-        # Fetch the product details
-        product = db.query(ProductDetails).filter(ProductDetails.product_id == product_id).first()
-        if not product:
-            raise HTTPException(status_code=404, detail="Product not found")
+def get_existing_customers(product_id: str, user_id: str, db: Session = Depends(get_db)):
+    product = db.query(ProductDetails).filter(ProductDetails.product_id == product_id, ProductDetails.user_id == user_id).first()
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found or you do not have permission to view this product")
 
-        # Fetch the company names whose decision makers are interested in the product
-        interested_companies = db.query(EmailStatus.company_name).filter(
-            EmailStatus.product_id == product_id,
-            EmailStatus.status == "Interested"
-        ).distinct().all()
+    # Fetch the company names whose decision makers are interested in the product
+    interested_companies = db.query(EmailStatus.company_name).filter(
+        EmailStatus.product_id == product_id,
+        EmailStatus.status == "Interested"
+    ).distinct().all()
 
-        # Extract company names from the query result
-        company_names = [company[0] for company in interested_companies]
+    # Extract company names from the query result
+    company_names = [company[0] for company in interested_companies]
 
-        # update existing_customers field in the product details with company names
-        product.existing_customers = company_names
-        db.commit()
+    # update existing_customers field in the product details with company names
+    product.existing_customers = company_names
+    db.commit()
 
-        # return the updated product details
-        return {
-            "product_id": product.product_id,
-            "product_name": product.product_name,
-            "existing_customers": product.existing_customers,
-            "product_description": product.product_description,
-            "target_min_emp_count": product.target_min_emp_count,
-            "target_max_emp_count": product.target_max_emp_count,
-            "target_industries": product.target_industries,
-            "target_geo_loc": product.target_geo_loc,
-            "target_business_model": product.target_business_model,
-            "addressing_pain_points": product.addressing_pain_points
-        }
-
-    finally:
-        db.close()
+    # return the updated product details
+    return {
+        "product_id": product.product_id,
+        "product_name": product.product_name,
+        "existing_customers": product.existing_customers,
+        "product_description": product.product_description,
+        "target_min_emp_count": product.target_min_emp_count,
+        "target_max_emp_count": product.target_max_emp_count,
+        "target_industries": product.target_industries,
+        "target_geo_loc": product.target_geo_loc,
+        "target_business_model": product.target_business_model,
+        "addressing_pain_points": product.addressing_pain_points
+    }
 
 @app.put("/update_product/{product_id}")
-def update_product(product_id: str, request: ProductRequest):
-    db = SessionLocal()
-    try:
-        # Fetch the product details
-        product = db.query(ProductDetails).filter(ProductDetails.product_id == product_id).first()
-        if not product:
-            raise HTTPException(status_code=404, detail="Product not found")
+def update_product(product_id: str, user_id: str, request: ProductRequest, db: Session = Depends(get_db)):
+    product = db.query(ProductDetails).filter(ProductDetails.product_id == product_id, ProductDetails.user_id == user_id).first()
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found or you do not have permission to update this product")
 
-        # Update the product details
-        product.product_name = request.product_name
-        product.existing_customers = request.existing_customers
-        product.product_description = request.product_description
-        product.target_min_emp_count = request.target_min_emp_count
-        product.target_max_emp_count = request.target_max_emp_count
-        product.target_industries = request.target_industries
-        product.target_geo_loc = request.target_geo_loc
-        product.target_business_model = request.target_business_model
-        product.addressing_pain_points = request.addressing_pain_points
+    # Update the product details
+    product.product_name = request.product_name
+    product.existing_customers = request.existing_customers
+    product.product_description = request.product_description
+    product.target_min_emp_count = request.target_min_emp_count
+    product.target_max_emp_count = request.target_max_emp_count
+    product.target_industries = request.target_industries
+    product.target_geo_loc = request.target_geo_loc
+    product.target_business_model = request.target_business_model
+    product.addressing_pain_points = request.addressing_pain_points
 
-        db.commit()
+    db.commit()
 
-        # Return the updated product details
-        return {
-            "product_id": product.product_id,
-            "product_name": product.product_name,
-            "existing_customers": product.existing_customers,
-            "product_description": product.product_description,
-            "target_min_emp_count": product.target_min_emp_count,
-            "target_max_emp_count": product.target_max_emp_count,
-            "target_industries": product.target_industries,
-            "target_geo_loc": product.target_geo_loc,
-            "target_business_model": product.target_business_model,
-            "addressing_pain_points": product.addressing_pain_points
-        }
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(status_code=500, detail=f"Error updating product: {e}")
-    finally:
-        db.close()
+    # Return the updated product details
+    return {
+        "product_id": product.product_id,
+        "product_name": product.product_name,
+        "existing_customers": product.existing_customers,
+        "product_description": product.product_description,
+        "target_min_emp_count": product.target_min_emp_count,
+        "target_max_emp_count": product.target_max_emp_count,
+        "target_industries": product.target_industries,
+        "target_geo_loc": product.target_geo_loc,
+        "target_business_model": product.target_business_model,
+        "addressing_pain_points": product.addressing_pain_points
+    }
 
 @app.post("/add_company/")
 def add_company(user_id: str, request: CompanyEditRequest, db: Session = Depends(get_db)):
@@ -1256,6 +1282,90 @@ def edit_positions(user_id: str, request: PositionEditRequest, db: Session = Dep
 
     db.commit()
     return {"message": "Position updated successfully"}
+
+@app.post("/add_generated_companies/")
+def add_generated_companies(request: GeneratedCompanyRequest, user_id: str, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    product = db.query(ProductDetails).filter(ProductDetails.product_id == request.product_id, ProductDetails.user_id == user_id).first()
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found or you do not have permission to add companies for this product")
+
+    # update the company_limit in users table
+    if user.company_limit < len(request.companies):
+        raise HTTPException(status_code=400, detail="Company limit exceeded")
+    else:
+        user.company_limit = user.company_limit - len(request.companies)
+    
+    try:
+        for company in request.companies:
+            new_company = GeneratedCompany(
+                id='generatedCompany_'+str(uuid.uuid4()),  # Ensure unique ID
+                user_id=user_id,
+                product_id=request.product_id,
+                company_name=company["name"],
+                industry=company.get("industry"),
+                domain=company.get("domain"),
+                status="Not Contacted",
+                decision_maker_name=company.get("decision_maker_name"),  # Allow null
+                decision_maker_email=company.get("decision_maker_email"),  # Allow null
+                decision_maker_position=company.get("decision_maker_position")  # Allow null
+            )
+            db.add(new_company)
+        db.commit()
+        return {"message": "Generated companies added successfully"}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error adding generated companies: {e}")
+    finally:
+        db.close()
+
+@app.get("/get_generated_companies/")
+def get_generated_companies(user_id: str, product_id: str, db: Session = Depends(get_db)):
+    try:
+        companies = db.query(GeneratedCompany).filter(GeneratedCompany.user_id == user_id, GeneratedCompany.product_id == product_id).all()
+        return [
+            {
+                "id": company.id,
+                "name": company.company_name,
+                "industry": company.industry,
+                "domain": company.domain,
+                "status": company.status,
+                "decision_maker": company.decision_maker_name,  # New field
+                "decision_maker_mail": company.decision_maker_email,  # New field
+                "decision_maker_position": company.decision_maker_position,  # New field
+                "failed_company": company.failed_company
+            }
+            for company in companies
+        ]
+    finally:
+        db.close()
+
+@app.put("/update_generated_company_status/")
+def update_generated_company_status(request: GeneratedCompanyUpdateRequest, user_id: str, db: Session = Depends(get_db)):
+    company = db.query(GeneratedCompany).filter(GeneratedCompany.id == request.company_id, GeneratedCompany.user_id == user_id).first()
+    if not company:
+        raise HTTPException(status_code=404, detail="Company not found or you do not have permission to update this company")
+    
+    company.status = request.status
+    company.decision_maker_name = request.decision_maker_name  # New field
+    company.decision_maker_email = request.decision_maker_email  # New field
+    company.decision_maker_position = request.decision_maker_position  # New field
+    if request.failed_company == True:
+        if company.failed_company == False:
+            user = db.query(User).filter(User.id == user_id).first()
+            user.company_limit = user.company_limit + 1
+            company.failed_company = True
+    if request.failed_company == False:
+        if company.failed_company == True:
+            user = db.query(User).filter(User.id == user_id).first()
+            user.company_limit = user.company_limit - 1
+            company.failed_company = False
+
+    db.commit()
+    return {"message": "Company status updated successfully"}
 
 if __name__ == "__main__":
     import uvicorn

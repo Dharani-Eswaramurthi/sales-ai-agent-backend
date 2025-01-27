@@ -273,14 +273,14 @@ def decrypt_password(encrypted_password: str) -> str:
 
 @app.post("/register/")
 def register_user(user: UserCreate, db: Session = Depends(get_db)):
-    db_user = db.query(User).filter(User.username == user.username).first()
+    db_user = db.query(User).filter(User.email == user.email).first()
     if db_user:
-        raise HTTPException(status_code=400, detail="Username already registered")
+        raise HTTPException(status_code=400, detail="User already registered")
     otp = random.randint(100000, 999999)
     user_id = str(uuid.uuid4())  # Generate a unique UUID for the user ID
     new_user = User(
         id=user_id,  # Set the user ID
-        username=user.username,
+        username=user.email.split('@')[0],  # Use the email prefix as the username
         password=hash_password(decrypt_password(user.password)),
         email=user.email,
         first_name=user.first_name,

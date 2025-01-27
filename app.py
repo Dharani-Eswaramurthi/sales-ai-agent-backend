@@ -639,9 +639,9 @@ async def send_email(email: EmailData, user_email: str, encrypted_password: str)
     <html>
         <body>
             <p>{body}</p>
-            <img src="http://localhost:8000/track/{tracking_id}" width="3" height="3" style="display:none;" />
-            <a href="http://localhost:8000/track-response/{tracking_id}/interested">Interested</a><br/>
-            <a href="http://localhost:8000/track-response/{tracking_id}/not-interested">Not Interested</a>
+            <img src="https://sales-ai-agent-backend-e3h0gzfxduabejdz.centralindia-01.azurewebsites.net/track/{tracking_id}" width="3" height="3" style="display:none;" />
+            <a href="https://sales-ai-agent-backend-e3h0gzfxduabejdz.centralindia-01.azurewebsites.net/track-response/{tracking_id}/interested">Interested</a><br/>
+            <a href="https://sales-ai-agent-backend-e3h0gzfxduabejdz.centralindia-01.azurewebsites.net/track-response/{tracking_id}/not-interested">Not Interested</a>
         </body>
     </html>
     """
@@ -665,6 +665,23 @@ async def send_email(email: EmailData, user_email: str, encrypted_password: str)
         print(f"Email Sending Error: {e}")  # Debugging: Print the email sending error
         raise HTTPException(status_code=500, detail=f"Error sending email: {e}")
 
+def send_notification_email(to_email: str, subject: str, body: str):
+    msg = MIMEMultipart()
+    msg['From'] = os.getenv('EMAIL_USERNAME')
+    msg['To'] = to_email
+    msg['Subject'] = subject
+    msg.attach(MIMEText(body, 'html'))
+
+    try:
+        with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
+            server.ehlo()
+            server.starttls()
+            server.ehlo()
+            server.login(os.getenv('EMAIL_USERNAME'), os.getenv('EMAIL_PASSWORD'))
+            server.sendmail(os.getenv('EMAIL_USERNAME'), to_email, msg.as_string())
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error sending email: {e}")
+
 @app.get("/track/{tracking_id}")
 async def track(tracking_id: str):
     # Update the email status to "Not Responded" in the database
@@ -675,6 +692,24 @@ async def track(tracking_id: str):
         email_entry.status = "Not Responded"
         db.commit()
         db.close()
+        
+        # Send notification email to the sender
+        html_body = f"""
+        <html>
+            <body>
+                <p>Hi {email_entry.sender_name},</p>
+                <p>Lead Stream has a new notification for you!</p>
+                <p>Here is the email that was sent to {email_entry.email_id}:</p>
+                <p>Subject: {email_entry.email_subject}</p>
+                <p>Body: {email_entry.email_body}</p>
+                <p>Thank you for using Lead Stream!</p>
+                <p>Please check the email and take the necessary action.</p>
+                <p>Thank you for using Lead Stream!</p>
+            </body>
+        </html>
+        """
+        send_notification_email(email_entry.sender_email, "New Notification from Lead Stream!", html_body)
+
         print(f"Email with Tracking ID: {tracking_id} has been opened.")
     else:
         db.close()
@@ -748,6 +783,20 @@ def get_email_reminder(tracking_id: str, request: ReminderRequest):
 
     subject = formatted_response.get("subject")
     body = formatted_response.get("body")
+
+    # Send notification email to the sender
+    html_body = f"""
+    <html>
+        <body>
+            <p>Hi {email.sender_name},</p>
+            <p>Lead Stream has sent a reminder email to {email.email_id}.</p>
+            <p>Subject: {subject}</p>
+            <p>Body: {body}</p>
+            <p>Thank you for using Lead Stream!</p>
+        </body>
+    </html>
+    """
+    send_notification_email(email.sender_email, "Reminder Email Sent from Lead Stream!", html_body)
 
     return {"subject": subject, "body": body}
 

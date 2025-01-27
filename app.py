@@ -660,6 +660,21 @@ async def send_email(email: EmailData, user_email: str, encrypted_password: str)
             server.ehlo()
             server.login(user_email, decrypted_password)
             server.sendmail(user_email, recipient, msg.as_string())
+        
+        # Send notification email to the sender
+        html_body = f"""
+        <html>
+            <body>
+                <p>Hi {sender_name},</p>
+                <p>Your email to {recipient} has been sent successfully.</p>
+                <p>Subject: {subject}</p>
+                <p>Body: {body}</p>
+                <p>Thank you for using Lead Stream!</p>
+            </body>
+        </html>
+        """
+        send_notification_email(sender_email, "Email Sent Notification", html_body)
+
         return {"message": "Email sent!"}
     except Exception as e:
         print(f"Email Sending Error: {e}")  # Debugging: Print the email sending error
@@ -867,6 +882,20 @@ async def send_followup_email(user_email: str, encrypted_password: str, followup
                 server.ehlo()
                 server.login(user_email, decrypted_password)
                 server.sendmail(user_email, followup.recipient, msg.as_string())
+
+            # Send notification email to the sender
+            html_body = f"""
+            <html>
+                <body>
+                    <p>Hi {followup.sender_name},</p>
+                    <p>Your follow-up email to {followup.recipient} has been sent successfully.</p>
+                    <p>Subject: {followup.subject}</p>
+                    <p>Body: {followup.body}</p>
+                    <p>Thank you for using Lead Stream!</p>
+                </body>
+            </html>
+            """
+            send_notification_email(user_email, "Follow-up Email Sent Notification", html_body)
 
             return {"message": "Follow-up email sent!"}
         except Exception as e:

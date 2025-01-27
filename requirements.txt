@@ -17,3 +17,4 @@ sentence-transformers==3.3.1
 faiss-cpu==1.9.0.post1
 PyJWT==2.10.1
 bcrypt==3.2.0
+passlib

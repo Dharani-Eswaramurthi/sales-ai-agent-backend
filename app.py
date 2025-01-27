@@ -149,7 +149,10 @@ app = FastAPI()
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[ "https://lead-stream.heuro.in/", "https://sales-ai-agent-crm-fgbna0ghdrhxb5hp.centralindia-01.azurewebsites.net"],
+    allow_origins=[
+        "https://lead-stream.heuro.in",  # Correct URL without trailing slash
+        "https://sales-ai-agent-crm-fgbna0ghdrhxb5hp.centralindia-01.azurewebsites.net"
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

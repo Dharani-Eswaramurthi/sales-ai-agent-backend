@@ -397,7 +397,7 @@ def get_potential_companies(request: ProductRequest):
         raise HTTPException(status_code=500, detail="API Key not configured")
     
     prompt = f"""
-                Given the detailed product information and Ideal Client Profile (ICP) provided below, analyze and identify the top five companies with strong growth potential that are likely to be interested in this product. Each identified company must align with the specified target company information, including employee count, industry, geographical location, and business model. Exclude any companies listed in the 'Existing Customers' from your results.
+                Given the detailed product information and Ideal Client Profile (ICP) provided below, analyze and identify the top {request.limit} companies with strong growth potential that are likely to be interested in this product. Each identified company must align with the specified target company information, including employee count, industry, geographical location, and business model. Exclude any companies listed in the 'Existing Customers' from your results.
 
                 ### Product Information:
                 - **Product Name**: {request.product_name}

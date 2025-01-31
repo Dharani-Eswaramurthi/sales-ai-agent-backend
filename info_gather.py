@@ -1,17 +1,18 @@
 import requests
 import os
+import json
 
 # Set your API key
 API_KEY = os.getenv("PERPLEXITY_API_KEY")
 
 # Function to call the chat completions endpoint
-def chat_completion(messages):
+def chat_completion(messages, tokens):
     url = "https://api.perplexity.ai/chat/completions"  # Replace with the correct Perplexity chat completions endpoint
 
     payload = {
             "model": "llama-3.1-sonar-large-128k-online",
             "messages": messages,
-            "max_tokens": 300,
+            "max_tokens": tokens,
             "temperature": 0,
             "top_p": 0.9,
         }
@@ -31,32 +32,76 @@ def chat_completion(messages):
 
 # Function to create chat messages and retrieve information
 def get_company_and_person_info(company_name, person_name, position, product_description):
-    # Craft the system and user prompts
+    """Enhanced information gathering for hyper-personalized emails"""
     prompt = f'''
-    
-                Product Description: {product_description}
+    As a Business Intelligence Analyst, analyze these entities:
 
-                Follow the below steps to get the necessary information:
-                1. Understand the provided product description.
-                2. Now gather the company {company_name}'s latest news, updates and mainly the pain points if any from various sources and their official website.
-                3. Now gather the information about the person {person_name} who is the {position} of the company {company_name}. Focus on the person's background, achievements and contributions.
-                4. Based on the gathered information of {person_name}, indentify the person's behaviour, mindset, preferred communication style and tone, personal interest and way of working.
-                5. Now, based on the gathered information of the company {company_name} and the person {person_name} who is the {position}, provide the all the necessary information about the company and the person.
+    **Product**: {product_description}
 
-                Output Format:
-                ( provide a json of 3 keys namely {company_name}, {person_name} and pain points, and their relevant information with only 50 words for each of string datatype as their values, no other key should be present in the json )
+    **Analysis Steps**:
+    1. Company Analysis ({company_name}):
+    - Recent news/updates (past 6 months)
+    - Financial trends/earnings reports
+    - Current challenges/pain points related to: 
+      * Operational efficiency
+      * Market competition
+      * Technological adoption
+    - Industry position/ranking
+    - Strategic initiatives
 
-                NOTE: Enclose response only in triple quotes and do not include any other information other than the response in the output.
-'''
+    2. Decision Maker Profile ({person_name}, {position}):
+    - Communication style preferences (data-driven, visionary, pragmatic)
+    - Personality indicators (Myers-Briggs type if inferrable)
+    - Career milestones/achievements
+    - Public speaking topics/interests
+    - Leadership style indicators
+    - Recent professional moves/awards
+
+    3. Synergy Analysis:
+    - Map product capabilities to {company_name}'s verified needs
+    - Align value proposition with {person_name}'s decision-making patterns
+    - Identify 3 key persuasion leverage points
+
+    **Output Format** (strictly provide JSON format and no extra text or comments):
+    {{
+        "company_analysis": {{
+            "recent_news": "str",
+            "financial_health": "str",
+            "verified_challenges": ["str"],
+            "strategic_priorities": ["str"]
+        }},
+        "decision_maker_profile": {{
+            "communication_style": "str",
+            "personality_indicators": "str",
+            "personality_type": "str", ( give in 4 to 5 words, also if your giving in Myers-Briggs type, include the full form of it )
+            "key_achievements": "str",
+            "recent_activities": "str"
+        }},
+        "synergy_points": {{
+            "product_fit": "str",
+            "persuasion_levers": ["str"],
+            "urgency_factors": ["str"]
+        }}
+    }}
+    '''.strip()
+
     messages = [
-        {"role": "system", "content": "You are a helpful assistant that provides detailed information about companies and individuals."},
-        {"role": "user", "content": prompt},
+        {
+            "role": "system",
+            "content": "You are a senior business analyst with expertise in enterprise decision-making dynamics."
+        },
+        {
+            "role": "user",
+            "content": prompt
+        }
     ]
 
-    # Call the chat completions endpoint
-    response = chat_completion(messages)
+    try:
+        response = chat_completion(messages, 900)
 
-    return response
+        return response
+    except (json.JSONDecodeError, KeyError) as e:
+        return {"error": f"Analysis failed: {str(e)}"}
 
 # # Example usage
 # if __name__ == "__main__":

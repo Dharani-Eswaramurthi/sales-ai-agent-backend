@@ -1,126 +1,273 @@
 import PyPDF2
-from sentence_transformers import SentenceTransformer, util
-import faiss
+import re
 import numpy as np
-import os
-import requests
+import faiss
+from sentence_transformers import SentenceTransformer
+import json
+from info_gather import chat_completion
 
-# Step 1: Extract content from PDFs
-def extract_text_from_pdf(pdf_path):
-    with open(pdf_path, 'rb') as file:
-        reader = PyPDF2.PdfReader(file)
-        text = ''
-        for page in reader.pages:
-            text += page.extract_text()
-    return text
+class EmailProposalSystem:
+    def __init__(self, pdf_paths):
+        self.model = SentenceTransformer('all-MiniLM-L6-v2')
+        self.templates = self._load_all_templates(pdf_paths)
+        self._create_faiss_index()
 
-# Load and process PDFs
-pdf_paths = {
-    "email": "email-template.pdf",
-    "followup": "followup-template.pdf",
-    "breakup": "breakup-template.pdf"
-}
-documents = {key: extract_text_from_pdf(path) for key, path in pdf_paths.items()}
+    def _load_all_templates(self, pdf_paths):
+        """Load and structure templates from multiple PDFs"""
+        templates = {}
+        for category, path in pdf_paths.items():
+            templates[category] = self._extract_templates_from_pdf(path)
+        return templates
 
-# Step 2: Create a knowledge base
-model = SentenceTransformer('all-MiniLM-L6-v2')
-index = faiss.IndexFlatL2(384)
+    def _extract_templates_from_pdf(self, pdf_path):
+        """Extract numbered templates from a single PDF with error handling"""
+        try:
+            print(f"Processing PDF: {pdf_path}")  # Debug statement
+            with open(pdf_path, 'rb') as file:
+                reader = PyPDF2.PdfReader(file)
+                full_text = '\n'.join([page.extract_text() for page in reader.pages])
+                print(f"Extracted text from PDF:\n{full_text}")  # Debug statement
 
-# Store embeddings in FAISS
-doc_embeddings = [model.encode(documents[key]) for key in documents]
-for embedding in doc_embeddings:
-    index.add(np.array([embedding]))
+            # Preprocess the text: Replace multiple spaces and newlines with a single space
+            full_text = re.sub(r'\s+', ' ', full_text).strip()
 
-def retrieve_relevant_content(query):
-    query_embedding = model.encode(query)
-    D, I = index.search(np.array([query_embedding]), k=1)
-    relevant_doc_key = list(documents.keys())[I[0][0]]
-    return documents[relevant_doc_key]
+            # Improved regex pattern to match numbered templates
+            # Matches patterns like "1. Template Title" or "1.  Template Title" or "2. “I Feel Like a Stalker”"
+            pattern = r'(\b\d+\.\s+“?[A-Za-z].+?”?)(?=\b\d+\.\s+“?[A-Za-z]|\Z)'
+            sections = re.split(pattern, full_text)
 
-# Step 3: Efficient prompting with retrieval using Perplexity
-API_KEY = os.getenv("PERPLEXITY_API_KEY")
-BASE_URL = "https://api.perplexity.ai/chat/completions"
+            templates = []
+            current_title = None
+            current_content = ""
 
-def generate_email(query, situation, **kwargs):
-    # Retrieve relevant content
-    context = retrieve_relevant_content(situation)
+            for i, section in enumerate(sections):
+                if re.match(r'\b\d+\.\s+“?[A-Za-z].+?”?', section.strip()):
+                    # Found new template title
+                    if current_title:
+                        # Add previous template if exists
+                        templates.append({
+                            'title': current_title.strip(),
+                            'content': current_content.strip(),
+                            'embedding': None
+                        })
+                    current_title = section.strip()
+                    current_content = ""
+                elif current_title:
+                    # Accumulate content under current title
+                    current_content += section.strip() + " "
 
-    print("Context:", context)
+            # Add the last template
+            if current_title and current_content:
+                templates.append({
+                    'title': current_title.strip(),
+                    'content': current_content.strip(),
+                    'embedding': None
+                })
+
+            if not templates:
+                print(f"No templates found in {pdf_path}")  # Debug statement
+
+            print(f"Found {len(templates)} templates in {pdf_path}:")  # Debug statement
+            for i, template in enumerate(templates, 1):
+                print(f"Template {i}: {template['title']}")  # Debug statement
+
+            return templates
+
+        except Exception as e:
+            print(f"Error processing {pdf_path}: {str(e)}")
+            return []
+
+    def _create_faiss_index(self):
+        """Create unified FAISS index for all templates"""
+        all_embeddings = []
+        self.template_list = []
+
+        # Flatten templates and create embeddings
+        for category in self.templates:
+            for template in self.templates[category]:
+                embedding = self.model.encode(template['title'] + " " + template['content'])
+                template['embedding'] = embedding
+                all_embeddings.append(embedding)
+                self.template_list.append(template)
+
+        # Create FAISS index if there are embeddings
+        if all_embeddings:
+            self.index = faiss.IndexFlatL2(len(all_embeddings[0]))
+            self.index.add(np.array(all_embeddings))
+        else:
+            self.index = None
+            print("No templates found to create FAISS index.")
+
+    def retrieve_best_template(self, query):
+        """Find most relevant template using semantic search"""
+        if not self.index:
+            raise ValueError("FAISS index has not been created. No templates available.")
+        query_embed = self.model.encode(query)
+        distances, indices = self.index.search(np.array([query_embed]), 1)
+        return self.template_list[indices[0][0]]
+
+    def generate_email(self, query, situation, **kwargs):
+        """Generate personalized email using template and context"""
+        # Check if FAISS index is available
+        if not self.index:
+            return {
+                "subject": "No Templates Available",
+                "body": "No templates are available to generate an email."
+            }
+
+        # Retrieve template
+        template = self.retrieve_best_template(query)
+
+        # Build context from kwargs
+        req_info = json.loads(kwargs.get('req_info', '{}'))
+        print("REQ INFO", req_info)
+        company_analysis = req_info.get('company_analysis', {})
+        decision_maker_profile = req_info.get('decision_maker_profile', {})
+        synergy_points = req_info.get('synergy_points', {})
+
+        company_context = f"""
+        Recent News: {company_analysis.get('recent_news', '')}
+        Financial Health: {company_analysis.get('financial_health', '')}
+        Verified Challenges: {', '.join(company_analysis.get('verified_challenges', []))}
+        Strategic Priorities: {', '.join(company_analysis.get('strategic_priorities', []))}
+        """
+
+        decision_maker_context = f"""
+        Communication Style: {decision_maker_profile.get('communication_style', '')}
+        Personality Indicators: {decision_maker_profile.get('personality_indicators', '')}
+        Key Achievements: {decision_maker_profile.get('key_achievements', '')}
+        Recent Activities: {decision_maker_profile.get('recent_activities', '')}
+        """
+
+        synergy_context = f"""
+        Product Fit: {synergy_points.get('product_fit', '')}
+        Persuasion Levers: {', '.join(synergy_points.get('persuasion_levers', []))}
+        Urgency Factors: {', '.join(synergy_points.get('urgency_factors', []))}
+        """
+
+        # Construct AI prompt
+        prompt = f"""
+        Generate a highly personalized email using this template:
+        --- TEMPLATE BEGIN ---
+        {template['content']}
+        --- TEMPLATE END ---
+
+        Context:
+        - Situation Type: {situation}
+        - Product: {kwargs.get('product_description', '')}
+        - Company Context: {company_context}
+        - Decision Maker Profile: {decision_maker_context}
+        - Synergy Points: {synergy_context}
+        - Sender Name: {kwargs.get('sender_name', '')}
+        - Sender Position: {kwargs.get('sender_position', '')}
+        - Sender Company: {kwargs.get('sender_company', '')}
+
+        Requirements:
+        1. Maintain template structure exactly
+        2. Personalize content using decision maker's profile
+        3. Address company's specific pain points
+        4. Use {decision_maker_profile.get('communication_style', 'professional')} tone
+        5. The template is not formatted correctly but it provides info on how to create the email. So, you need to format the email correctly e.g, add 2 <br/> for each section.
+        6. Do not assume any additional information not provided in the context. Include a dummy placeholder if needed.
+        7. Include relevant HTML formatting
+        8. Output JSON with 'subject' and 'body' keys. 
+        9. Generate a {decision_maker_profile.get('communication_style', '')} click bait subject line and as well as based on the template content.
+        10. STRICTLY, Provide only the JSON response without any additional text or content.
+
+        NOTE: Keep in mind the max_tokens limit for the API call. So do not compromise on the quality of the email but avoid unnecessary spaces in the response.
+        """
+        
+
+        # Call your API here (implementation depends on your API client)
+        return self._call_llm_api(prompt, decision_maker_profile.get('personality_type', ''))
+
+    def _call_llm_api(self, prompt, decision_maker_context=None):
+        """Mock API call implementation"""
+        # Replace with actual API call
+        # call the API with the prompt and get the response
+        messages = [
+            {"role": "system", "content": "You are a helpful assistant that generates emails based on given templates and context. The output should be in JSON format with 'subject' and 'body' keys."},
+            {"role": "user", "content": prompt}
+        ]
+
+        response = chat_completion(messages, 700)
+        # parse the response to extract the subject and body
+        try:
+            return response, decision_maker_context
+        except json.JSONDecodeError:
+            return {
+                "subject": "Error Parsing Response",
+                "body": "Failed to parse the response from the API."
+            }
+        
+
     
-    # Extract additional inputs
-    product_description = kwargs.get("product_description", "")
-    company_name = kwargs.get("company_name", "")
-    decision_maker = kwargs.get("decision_maker", "")
-    decision_maker_position = kwargs.get("decision_maker_position", "")
-    req_info = kwargs.get("req_info", "")
-    sender_name = kwargs.get("sender_name", "")
-    sender_position = kwargs.get("sender_position", "")
-    sender_company = kwargs.get("sender_company", "")
-
-    # Dynamic prompt construction
-    prompt = f"""
-                You are an expert email composer, skilled in creating professional and engaging business emails tailored to specific situations. 
-
-                ### Context:
-                Refer to the provided document on crafting the {situation}: {context}
-
-                ### Inputs:
-                - **Product Description**: {product_description}
-                - **Target Company Name**: {company_name}
-                - **Decision Maker Name**: {decision_maker}
-                - **Decision Maker Position**: {decision_maker_position}
-                - **Target Company and Decision Maker Details**: {req_info}
-                - **Sender Name**: {sender_name}
-                - **Sender Position**: {sender_position}
-                - **Sender Company**: {sender_company}
-
-                ### Instructions:
-                1. Analyze the context and input details thoroughly.
-                2. Compose a professional email tailored specifically to the situation: **{situation}**.
-                3. Ensure the email maintains a persuasive and engaging tone, suitable for professional communication.
-                4. Structure the email using appropriate HTML tags for formatting and clarity like <br/>, <strong>, for bulletings, and other necessary tags. Include proper spacing and alignment based on the context.
-
-                ### Output Format:
-                Return the email content in JSON format with the following structure:
-                
-                "subject": "Customized Subject Based on Situation",
-                "body": "(Craft the email body on behalf of the sender based on the situation, inputs, and context. Use the best approach for the given scenario.)"
-                
-                Important: Ensure that only the JSON response is returned without any additional text or content with proper JSON formatting so that it is ready to conevrt from string response to json.
-                """
-
-    payload = {
-        "model": "llama-3.1-sonar-large-128k-online",
-        "messages": [
-            {"role": "system", "content": prompt},
-            {"role": "user", "content": query}
-        ],
-        "max_tokens": 650,
-        "temperature": 0.7
-    }
-
-    headers = {
-        "Authorization": f"Bearer {API_KEY}",
-        "Content-Type": "application/json",
-    }
-
-    try:
-        response = requests.post(BASE_URL, json=payload, headers=headers)
-        response.raise_for_status()
-        return response.json()
-    except requests.exceptions.RequestException as e:
-        print(f"Error: {e}")
-        return None
-
-# Usage example
-# query = "Breakup on our previous discussion"
-# situation = "breakup"
-# kwargs = {
-#     "product_description": "A cutting-edge AI-powered analytics tool.",
-#     "company_name": "Acme Corp",
-#     "decision_maker": "Jane Doe",
-#     "decision_maker_position": "CTO",
-#     "req_info": "Company website: www.acmecorp.com"
-# }
-# email_output = generate_email(query, situation, **kwargs)
-# print(email_output)
+# Usage Example
+# if __name__ == "__main__":
+#     # Initialize with your PDF paths
+#     pdf_paths = {
+#         "email": "email-template.pdf",
+#         "followup": "followup-template.pdf",
+#         "breakup": "breakup-template.pdf"
+#     }
+    
+#     proposal_system = EmailProposalSystem(pdf_paths)
+    
+#     # Mock request data
+#     mock_request = {
+#         "product_description": "AI-powered supply chain optimization",
+#         "sender_name": "John Doe",
+#         "sender_position": "Sales Director",
+#         "sender_company": "Tech Solutions Inc"
+#     }
+    
+#     # Generate req_info (from your separate function)
+#     req_info = {
+#         "company_analysis": {
+#             "recent_news": "Khozema Shipchandler was appointed as the Chief Executive Officer of Twilio in January 2024, marking a significant leadership transition. He has been instrumental in various roles at Twilio, including Chief Financial Officer, Chief Operating Officer, and President of Twilio Communications.",
+#             "financial_health": "Twilio's financial health has been robust, with the company continuing to grow in the customer engagement platform market. However, specific earnings reports from the last 6 months are not detailed in the provided sources. Twilio has seen significant investment and growth under Shipchandler's leadership.",
+#             "verified_challenges": [
+#                 "Operational efficiency: Ensuring streamlined experiences for hundreds of thousands of businesses across the globe.",
+#                 "Market competition: Maintaining a competitive edge in the highly competitive tech industry.",
+#                 "Technological adoption: Continuously innovating and adopting new technologies to drive real-time, personalized customer experiences."
+#             ],
+#             "strategic_priorities": [
+#                 "Driving efficiency and innovation across Twilio's communications business.",
+#                 "Ensuring the security and trustworthiness of the company's operations.",
+#                 "Expanding and enhancing the company's customer engagement platform capabilities."
+#             ]
+#         },
+#         "decision_maker_profile": {
+#             "communication_style": "Data-driven and pragmatic, given his extensive background in finance and operational roles at GE and Twilio.",
+#             "personality_indicators": "While specific Myers-Briggs type is not inferable, his career suggests a detail-oriented and strategic thinker with strong leadership skills.",
+#             "key_achievements": "Over 25 years of experience growing businesses and driving financial performance, significant roles at GE including Chief Commercial Officer at GE Digital, and various executive positions at Twilio.",
+#             "recent_activities": "Appointment as CEO of Twilio, serving on the boards of Smartsheet and Ethos, and previous roles such as President of Twilio Communications and Chief Operating Officer."
+#         },
+#         "synergy_points": {
+#             "product_fit": "Providing top 3% remote Indian IT talent can help Twilio address operational efficiency and technological adoption challenges by ensuring access to skilled and specialized workforce, thereby enhancing their customer engagement platform capabilities.",
+#             "persuasion_levers": [
+#                 "Highlighting the cost-effectiveness and quality of remote IT talent, which aligns with Shipchandler's data-driven and pragmatic approach.",
+#                 "Emphasizing the potential for increased operational efficiency through the integration of skilled remote workers.",
+#                 "Showcasing case studies or success stories of other companies that have benefited from similar staffing services, appealing to his strategic and detail-oriented leadership style."
+#             ],
+#             "urgency_factors": [
+#                 "The need for continuous innovation and technological adoption to stay competitive in the market.",
+#                 "The immediate requirement for skilled IT talent to support the growth and expansion of Twilio's customer engagement platform.",
+#                 "The potential for improved operational efficiency and reduced costs through the use of high-quality remote IT talent."
+#             ]
+#         }
+#     }
+    
+#     # Generate email
+#     response = proposal_system.generate_email(
+#         query="Need to contact decision maker about supply chain improvements",
+#         situation="Finding a Decision Maker Introduction",
+#         company_name="Global Manufacturing Corp",
+#         decision_maker="Sarah Johnson",
+#         decision_maker_position="Chief Operations Officer",
+#         req_info=json.dumps(req_info),
+#         **mock_request
+#     )
+    
+#     # print the generated email
+#     print(response)

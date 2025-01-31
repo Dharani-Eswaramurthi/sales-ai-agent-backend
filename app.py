@@ -24,12 +24,12 @@ from base64 import b64decode
 from base64 import b64decode
 from Crypto.Cipher import AES
 from Crypto.Util.Padding import unpad
-from email_proposal import generate_email
 from dotenv import load_dotenv
 import random
 from passlib.context import CryptContext
 import jwt
 from typing import Optional
+from email_proposal import EmailProposalSystem
 
 # Load environment variables from .env file
 load_dotenv()
@@ -48,6 +48,12 @@ ALGORITHM = "HS256"
 
 # Password hashing configuration
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+pdf_paths = {
+            "email": "email-template.pdf",
+            "followup": "followup-template.pdf",
+            "breakup": "breakup-template.pdf"
+        }
 
 def hash_password(password: str) -> str:
     return pwd_context.hash(password)
@@ -72,6 +78,7 @@ class EmailStatus(Base):
     user_id = Column(String, ForeignKey('users.id', ondelete='CASCADE'))  # Add user_id field
     dm_name = Column(String, nullable=False)
     company_name = Column(String, nullable=False)
+    company_id = Column(String, ForeignKey('generated_companies.id', ondelete='CASCADE'))
     dm_position = Column(String, nullable=False)
     email_id = Column(String, nullable=False)
     email_subject = Column(String, nullable=False)
@@ -149,6 +156,8 @@ class GeneratedCompany(Base):
     industry = Column(String, nullable=True)
     domain = Column(String, nullable=True)
     status = Column(String, default="Not Contacted")
+    personality_type = Column(String, nullable=True)
+    linkedin_url = Column(String, nullable=True)
     decision_maker_name = Column(String, nullable=True)  # New field
     decision_maker_email = Column(String, nullable=True)  # New field
     decision_maker_position = Column(String, nullable=True)  # New field
@@ -217,6 +226,7 @@ class ProductRequest(BaseModel):
     limit: int = 5
 
 class DecisionMakerRequest(BaseModel):
+    user_id: str
     company_name: str
     domain_name: str
 
@@ -275,6 +285,8 @@ class GeneratedCompanyUpdateRequest(BaseModel):
     company_id: str
     status: str
     decision_maker_name: Optional[str] = None  # New field
+    personality_type: Optional[str] = None  # New field
+    linkedin_url: Optional[str] = None  # New field
     decision_maker_email: Optional[str] = None  # New field
     decision_maker_position: Optional[str] = None  # New field
     failed_company: Optional[bool] = False  # New field
@@ -446,12 +458,12 @@ def get_potential_decision_makers(request: DecisionMakerRequest):
     
     print("Fetching decision makers for ", request.company_name)
     comp_name = request.company_name
-    api_key = 'AIzaSyCVE8h9gXjnd_ztGOoTP107sZPBMlMW0Gg'
+    api_key = 'AIzaSyAHjNQVQJEjBHhk5KlFSDBenulfbmv3qIw'
     search_engine_id = '82bd22c03bc644768'
     positions = ['CEO', 'Co-CEO', 'VP']
     results = []
     for i in positions:
-        query = f"{i} at {comp_name} site:linkedin.com"
+        query = f"{i} at {request.domain_name} site:linkedin.com"
         result = google_search(api_key, search_engine_id, query, limit=5)  # Set limit to 5
         # Process results
         ref_res = []
@@ -485,9 +497,9 @@ def get_potential_decision_makers(request: DecisionMakerRequest):
                 List of Scrapped Decision Makers of the company {comp_name} from LinkedIn: {scrapped_docs}
 
                 Output Format:
-                ( Provide only the dictionary as output of the company {comp_name} with name and title as the key and corresponding value for each decision maker. )
+                ( Provide only the dictionary as output of the company {comp_name} with decision maker name as key and decision maker position as value. Add another item in the dictionary in format decision make name + 'linkedin as key and the profile link as the value. )
 
-                NOTE: STRICTLY, Do not add any other text or explanation except the dictionary in the output.
+                NOTE: STRICTLY, Do not add any other text, explanation or comments, except the JSON in the output.
 
                 """
     
@@ -500,7 +512,7 @@ def get_potential_decision_makers(request: DecisionMakerRequest):
                 "content": prompt
             }
         ],
-        "max_tokens": 70
+        "max_tokens": 200
     }
 
     try:
@@ -517,34 +529,34 @@ def get_potential_decision_makers(request: DecisionMakerRequest):
     
     api_response = format_response(response.json())
 
-    print("Decision makers found and formatted for ", comp_name)
+    print("Decision makers found and formatted for ", comp_name,"and they are", api_response)
 
-    company = {'name': comp_name, 'decision_maker': None, 'decision_maker_mail': None, 'decision_maker_position': None}
+    company = {'name': comp_name, 'decision_maker': None, 'decision_maker_mail': None, 'decision_maker_position': None, 'linkedin_url': None}
 
-    for i in list(api_response.keys()):
-        print("Fetching email of ", i," from the company ", comp_name)
-        ref_dm = i
-        dm_pos = api_response[i]
+    for key, value in api_response.items():
+        company['decision_maker'] = key
+        company['decision_maker_position'] = value
 
-        valid_mail = ''
+        first_name = None
+        last_name = None
+        middle_name = None
 
-        if len(ref_dm.split(' ')) > 1:
-            valid_mail = find_valid_email(ref_dm.split(' ')[0], ref_dm.split(' ')[1], request.domain_name)
-        else:
-            valid_mail = find_valid_email(ref_dm.split(' ')[0], ref_dm, request.domain_name)
+        if len(key.split(' ')) == 2:
+            first_name, last_name = key.split(' ')
+        elif len(key.split(' ')) == 3:
+            first_name, middle_name, last_name = key.split(' ')
+        elif len(key.split(' ')) == 1:
+            first_name = key
 
-        if valid_mail:
-            company['decision_maker'] = i
-            company['decision_maker_mail'] = valid_mail
-            company['decision_maker_position'] = dm_pos
+        domain = request.domain_name
+        valid_email = find_valid_email(first_name, last_name, domain)
+        if valid_email:
+            company['decision_maker_mail'] = valid_email
+            company['linkedin_url'] = api_response[company['decision_maker']+' linkedin']
             break
         else:
-            company['decision_maker'] = api_response
-            company['decision_maker_mail'] = None
-            company['decision_maker_position'] = None
-            # even in the last iteration if the email is not found, raise an exception
-            if i == list(api_response.keys())[-1]:
-                raise HTTPException(status_code=404, detail="Emails not found for this company")
+            if i == len(api_response)-1:
+                raise HTTPException(status_code=404, detail="No valid email found for the decision maker")
             continue
             
     return company
@@ -577,23 +589,41 @@ def get_email_proposal(request: EmailProposalRequest):
         query = "Personalised Email proposal based on Target Company and Decision Maker"
 
         situation = "email"
+        
+        proposal_system = EmailProposalSystem(pdf_paths)
+        
+        # Mock request data
+        mock_request = {
+            "product_description": request.product_description,
+            "sender_name": request.sender_name,
+            "sender_position": request.sender_position,
+            "sender_company": request.sender_company
+        }
+        
+        
+        # Generate email
+        response = proposal_system.generate_email(
+            query=query,
+            situation=situation,
+            company_name=company_name,
+            decision_maker=ref_dm,
+            decision_maker_position=dm_pos,
+            req_info=json.dumps(req_info),
+            **mock_request
+        )
 
-        kwargs = {
-                    "product_description": {request.product_description},
-                    "company_name": {company_name},
-                    "decision_maker": {ref_dm},
-                    "decision_maker_position": {dm_pos},
-                    "req_info": req_info,
-                    "sender_name": {request.sender_name},
-                    "sender_position": {request.sender_position},
-                    "sender_company": {request.sender_company}
-                }
+        response, decision_maker_context = response
+        
+        # print the generated email
+        print(format_response(response))
 
-        response = generate_email(query, situation, **kwargs)
+        response = format_response(response)
 
         print("Email template generated for", ref_dm)
 
-        return format_response(response)
+        response['personality_type'] = decision_maker_context
+
+        return response
 
 def format_response(response):
     # Parse and clean JSON output
@@ -601,11 +631,13 @@ def format_response(response):
     cleaned_json_string = re.sub(r'```(json|)', '', json_string).strip()
     try:
         # Ensure the JSON string is properly formatted
+        print("Cleaned JSON String: ", cleaned_json_string)
         if not (cleaned_json_string.startswith('{') and cleaned_json_string.endswith('}')) and \
            not (cleaned_json_string.startswith('[') and cleaned_json_string.endswith(']')):
             raise ValueError("Invalid JSON format")
         return json.loads(cleaned_json_string)
     except (json.JSONDecodeError, ValueError) as e:
+        print("JSON String error:",json_string)
         print(f"Error parsing JSON response: {e}")
         # Attempt to fix common formatting issues
         cleaned_json_string = re.sub(r'(?<!\\)\n', '\\n', cleaned_json_string)
@@ -822,19 +854,27 @@ def get_email_reminder(tracking_id: str, user_id: str, request: ReminderRequest,
 
     situation = request.type
 
-    kwargs = {
-                "product_description": {product_description},
-                "company_name": {company_name},
-                "decision_maker": {decision_maker},
-                "decision_maker_position": {dm_pos},
-                "req_info": req_info,
-                "sender_name": {request.sender_name},
-                "sender_position": {request.sender_position},
-                "sender_company": {request.sender_company}
-            }
-
-
-    response = generate_email(query, situation, **kwargs)
+    proposal_system = EmailProposalSystem(pdf_paths)
+        
+    # Mock request data
+    mock_request = {
+        "product_description": request.product_description,
+        "sender_name": request.sender_name,
+        "sender_position": request.sender_position,
+        "sender_company": request.sender_company
+    }
+    
+    
+    # Generate email
+    response = proposal_system.generate_email(
+        query=query,
+        situation=situation,
+        company_name=company_name,
+        decision_maker=decision_maker,
+        decision_maker_position=dm_pos,
+        req_info=json.dumps(req_info),
+        **mock_request
+    )
 
     formatted_response = format_response(response)
 
@@ -1333,6 +1373,8 @@ def get_generated_companies(user_id: str, product_id: str, db: Session = Depends
                 "industry": company.industry,
                 "domain": company.domain,
                 "status": company.status,
+                "personality_type": company.personality_type,
+                "linkedin_url": company.linkedin_url,  # New field
                 "decision_maker": company.decision_maker_name,  # New field
                 "decision_maker_mail": company.decision_maker_email,  # New field
                 "decision_maker_position": company.decision_maker_position,  # New field
@@ -1350,9 +1392,16 @@ def update_generated_company_status(request: GeneratedCompanyUpdateRequest, user
         raise HTTPException(status_code=404, detail="Company not found or you do not have permission to update this company")
     
     company.status = request.status
-    company.decision_maker_name = request.decision_maker_name  # New field
-    company.decision_maker_email = request.decision_maker_email  # New field
-    company.decision_maker_position = request.decision_maker_position  # New field
+    if request.decision_maker_name:
+        company.decision_maker_name = request.decision_maker_name  # New field
+    if request.personality_type:
+        company.personality_type = request.personality_type  # New field
+    if request.linkedin_url:
+        company.linkedin_url = request.linkedin_url  # New field
+    if request.decision_maker_email:
+        company.decision_maker_email = request.decision_maker_email  # New field
+    if request.decision_maker_position:
+        company.decision_maker_position = request.decision_maker_position  # New field
     if request.failed_company == True:
         if company.failed_company == False:
             user = db.query(User).filter(User.id == user_id).first()

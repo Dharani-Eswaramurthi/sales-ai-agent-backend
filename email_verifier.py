@@ -1,125 +1,142 @@
+import os
 import re
 import smtplib
-import dns.resolver
-from concurrent.futures import ThreadPoolExecutor
+import time
+import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
-def is_valid_email_format(email):
-    email_regex = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
-    return re.match(email_regex, email) is not None
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-def get_mx_records(domain):
-    try:
-        # Use a custom resolver with public DNS and increased timeout
-        resolver = dns.resolver.Resolver()
-        resolver.nameservers = ['8.8.8.8', '1.1.1.1']  # Google and Cloudflare DNS
-        resolver.timeout = 10
-        resolver.lifetime = 10
-        mx_records = resolver.resolve(domain, 'MX')
-        return [record.exchange.to_text() for record in mx_records]
-    except dns.resolver.NoAnswer:
-        raise ValueError(f"No MX records found for domain: {domain}")
-    except Exception as e:
-        raise ValueError(f"Error fetching MX records: {e}")
+# Configuration
+SENDGRID_SMTP_SERVER = "smtp.sendgrid.net"
+SENDGRID_PORT = 587
+VERIFIED_DOMAIN = "greenvy.store"  # Your authenticated domain
+FROM_ADDRESS = f"contact@{VERIFIED_DOMAIN}"  # Dedicated verification address
+MAX_WORKERS = 2  # Conservative concurrency
+REQUEST_DELAY = 1  # Seconds between attempts
+MAX_RETRIES = 2  # Per-email retry attempts
 
-def verify_email_smtp(email, mx_host, from_address="test@example.com"):
-    try:
-        with smtplib.SMTP(mx_host, timeout=10) as server:
-            server.helo("example.com")
-            server.mail(from_address)
-            code, _ = server.rcpt(email)
-            return code == 250
-    except Exception:
-        return False
+def is_valid_email_format(email: str) -> bool:
+    """Validate email format with strict regex"""
+    email_regex = r'^[a-zA-Z0-9.!#$%&’*+/=?^_`{|}~-]+@[a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)*$'
+    return re.fullmatch(email_regex, email) is not None
 
-def verify_email_parallel(email, mx_records):
-    with ThreadPoolExecutor(max_workers=5) as executor:
-        futures = [executor.submit(verify_email_smtp, email, mx) for mx in mx_records]
-        for future in futures:
-            if future.result():
-                return True
-    return False
-
-def generate_email_combinations(first_name, last_name, domain):
-    first_name = first_name.lower()
-    last_name = last_name.lower()
+def generate_email_combinations(first_name: str, last_name: str, domain: str) -> list:
+    """Generate prioritized email combinations with likelihood ranking"""
+    first = first_name.lower().strip()
+    last = last_name.lower().strip()
+    domain = domain.lower().strip()
+    
     return [
-        # Most common formats
-        f"{first_name}.{last_name}@{domain}",    # john.doe@example.com
-        f"{first_name}{last_name}@{domain}",     # johndoe@example.com
-        f"{first_name}@{domain}",                 # john@example.com
-        f"{first_name}_{last_name}@{domain}",    # john_doe@example.com
-        f"{first_name[0]}{last_name}@{domain}",  # jdoe@example.com
-        f"{first_name}{last_name[0]}@{domain}",  # john.d@example.com
-
-        # Variations with separators
-        f"{first_name}-{last_name}@{domain}",    # john-doe@example.com
-        f"{first_name[0]}.{last_name}@{domain}", # j.doe@example.com
-        f"{first_name[0]}_{last_name}@{domain}", # j_doe@example.com
+        f"{first}@{domain}",             # john@
+        # Highest probability formats (85% coverage)
+        f"{first}.{last}@{domain}",      # john.doe@
+        # f"{first[0]}{last}@{domain}",    # jdoe@
+        f"{first}{last}@{domain}",       # johndoe@
         
-        # Reverse order
-        f"{last_name}.{first_name}@{domain}",    # doe.john@example.com
-        f"{last_name}.{first_name[0]}@{domain}",  #doe.j@example.com
-        f"{last_name}_{first_name}@{domain}",    # doe_john@example.com
-        f"{last_name}-{first_name}@{domain}",    # doe-john@example.com
-        f"{last_name}{first_name}@{domain}",     # doejohn@example.com
-        f"{last_name}{first_name[0]}@{domain}",  # doej@example.com
-        f"{last_name[0]}{first_name}@{domain}",  # djohn@example.com
-        f"{last_name[0]}.{first_name}@{domain}", # d.john@example.com
-        f"{last_name[0]}_{first_name}@{domain}", # d_john@example.com
-
-        # Other potential formats
-        f"{first_name}{last_name[0]}@{domain}",  # johndoe@example.com (with middle initial)
-        f"{first_name[0]}{last_name[0]}@{domain}",# jd@example.com (initials)
+        # Common professional formats
+        f"{first}_{last}@{domain}",      # john_doe@
+        f"{last}.{first}@{domain}",      # doe.john@
+        # f"{first[0]}.{last}@{domain}",   # j.doe@
         
-        # Additional variations that may be used:
-        f"{first_name}.{last_name[0]}@{domain}",  # john.d@example.com (with last initial)
-        f"{last_name}{first_name}@{domain}",      # doejohn@example.com (reverse)
-        
-        # Including numbers (for cases where names are common)
-        f"{first_name}{last_name}1@{domain}",     # johndoe1@example.com
-        f"{first_name}{last_name}123@{domain}",   # johndoe123@example.com
-        
-        # Adding middle initials or names if applicable (if provided as an argument)
+        # Less common but valid formats
+        f"{first}-{last}@{domain}",      # john-doe@
+        # f"{last}{first[0]}@{domain}",    # doej@
+        # f"{first}{last[0]}@{domain}",    # john.d@
     ]
 
-def find_valid_email(first_name, last_name, domain):
-    try:
-        combinations = generate_email_combinations(first_name, last_name, domain)
-        mx_records = get_mx_records(domain)
+def verify_email_smtp(email: str) -> bool:
+    """Verify email using SendGrid's SMTP (returns boolean only)"""
+    api_key = os.getenv("SENDGRID_API_KEY")
+    if not api_key:
+        logger.error("SendGrid API key not found in environment variables")
+        return False
 
-        if not mx_records:
-            raise ValueError(f"No MX records found for domain: {domain}")
+    for attempt in range(MAX_RETRIES):
+        try:
+            logger.info(f"Attempting to verify {email} (attempt {attempt+1})")
+            with smtplib.SMTP(SENDGRID_SMTP_SERVER, SENDGRID_PORT, timeout=15) as server:
+                server.starttls()
+                server.login("apikey", api_key)
+                
+                server.ehlo_or_helo_if_needed()
+                server.mail(FROM_ADDRESS)
+                code, message = server.rcpt(email)
+                server.rset()
+                
+                logger.info(f"SMTP response for {email}: {code} - {message.decode()}")
+                
+                if code == 250:
+                    return True
+                if code == 450:
+                    continue
+                return False
 
-        print(f"Found MX records for {domain}: {mx_records}")
+        except smtplib.SMTPServerDisconnected:
+            logger.warning(f"SMTP server disconnected (attempt {attempt+1})")
+            time.sleep(2 ** attempt)
+        except Exception as e:
+            logger.error(f"Error verifying {email}: {str(e)}")
+            break
 
-        for email in combinations:
-            if not is_valid_email_format(email):
-                print(f"Skipping invalid email format: {email}")
-                continue
+    return False
 
-            print(f"Checking deliverability for: {email}")
-            if verify_email_parallel(email, mx_records):
-                print(f"Valid email found: {email}")
-                return email
-
-        print("No valid email found.")
+def find_valid_email(first_name: str, last_name: str, domain: str) -> str | None:
+    """Find valid email based on first successful verification"""
+    if not all([first_name, last_name, domain]):
+        logger.error("Missing required input parameters")
         return None
-    except Exception as e:
-        print(f"Error: {e}")
+
+    if not is_valid_email_format(f"test@{domain}"):
+        logger.error(f"Invalid domain format: {domain}")
         return None
 
-# Example Usage
+    candidates = generate_email_combinations(first_name, last_name, domain)
+    
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+        # Submit all candidates for verification
+        future_to_email = {
+            executor.submit(verify_email_smtp, email): email
+            for email in candidates
+            if is_valid_email_format(email)
+        }
+
+        # Process results in completion order (not priority order)
+        for future in as_completed(future_to_email):
+            email = future_to_email[future]
+            try:
+                if future.result():
+                    logger.info(f"First accepted email: {email}")
+                    executor.shutdown(wait=False, cancel_futures=True)
+                    return email
+                time.sleep(REQUEST_DELAY)
+            except Exception as e:
+                logger.error(f"Verification failed for {email}: {str(e)}")
+
+    logger.info("No deliverable email found")
+    return None
+
 # if __name__ == "__main__":
-#     first_name = input("Enter First Name: ")
-#     last_name = input("Enter Last Name: ")
-#     domain = input("Enter Domain (e.g., example.com): ")
+#     # Example usage with input validation
+#     try:
+#         first_name = input("Enter First Name: ").strip()
+#         last_name = input("Enter Last Name: ").strip()
+#         domain = input("Enter Domain (e.g., example.com): ").strip()
 
-#     if first_name and last_name and domain:
-#         print("Searching for a valid email...")
+#         if not all([first_name, last_name, domain]):
+#             raise ValueError("All fields are required")
+
+#         print("Searching for valid email...")
 #         valid_email = find_valid_email(first_name, last_name, domain)
+        
 #         if valid_email:
-#             print(f"Deliverable email: {valid_email}")
+#             print(f"Validated email: {valid_email}")
 #         else:
-#             print("No deliverable email found.")
-#     else:
-#         print("Please provide all inputs (First Name, Last Name, Domain).")
+#             print("No valid email found")
+
+#     except KeyboardInterrupt:
+#         print("\nOperation cancelled by user")
+#     except Exception as e:
+#         logger.error(f"Error: {str(e)}")

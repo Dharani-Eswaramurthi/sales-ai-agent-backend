@@ -78,7 +78,7 @@ class EmailStatus(Base):
     user_id = Column(String, ForeignKey('users.id', ondelete='CASCADE'))  # Add user_id field
     dm_name = Column(String, nullable=False)
     company_name = Column(String, nullable=False)
-    company_id = Column(String, ForeignKey('generated_companies.id', ondelete='CASCADE'))
+    company_id = Column(String, ForeignKey('generated_companies.id', ondelete='CASCADE')) 
     dm_position = Column(String, nullable=False)
     email_id = Column(String, nullable=False)
     email_subject = Column(String, nullable=False)

@@ -1,22 +1,15 @@
 import os
 import re
-import smtplib
-import time
 import logging
-from concurrent.futures import ThreadPoolExecutor, as_completed
+import requests
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Configuration
-SENDGRID_SMTP_SERVER = "smtp.sendgrid.net"
-SENDGRID_PORT = 587
-VERIFIED_DOMAIN = "greenvy.store"  # Your authenticated domain
-FROM_ADDRESS = f"contact@{VERIFIED_DOMAIN}"  # Dedicated verification address
-MAX_WORKERS = 2  # Conservative concurrency
-REQUEST_DELAY = 1  # Seconds between attempts
-MAX_RETRIES = 2  # Per-email retry attempts
+MAILTESTER_API_URL = "https://happy.mailtester.ninja/ninja"
+MAILTESTER_TOKEN_URL = "https://token.mailtester.ninja/token?key=yourkey"
+MAILTESTER_API_KEY = os.getenv("MAILTESTER_API_KEY")
 
 def is_valid_email_format(email: str) -> bool:
     """Validate email format with strict regex"""
@@ -47,41 +40,30 @@ def generate_email_combinations(first_name: str, last_name: str, domain: str) ->
         # f"{first}{last[0]}@{domain}",    # john.d@
     ]
 
-def verify_email_smtp(email: str) -> bool:
-    """Verify email using SendGrid's SMTP (returns boolean only)"""
-    api_key = os.getenv("SENDGRID_API_KEY")
-    if not api_key:
-        logger.error("SendGrid API key not found in environment variables")
+def get_mailtester_token(api_key: str) -> str:
+    """Retrieve the authentication token from MailTester API"""
+    response = requests.get(MAILTESTER_TOKEN_URL.replace("yourkey", api_key))
+    if response.status_code == 200:
+        data = response.json()
+        return data.get("token")
+    else:
+        logger.error("Failed to retrieve MailTester token")
+        return None
+
+def verify_email_api(email: str, token: str) -> bool:
+    """Verify email using MailTester API"""
+    params = {
+        "email": email,
+        "token": token
+    }
+    response = requests.get(MAILTESTER_API_URL, params=params)
+    if response.status_code == 200:
+        data = response.json()
+        logger.info(f"API response for {email}: {data}")
+        return data.get("code") == "ok"
+    else:
+        logger.error(f"Failed to verify {email} via API")
         return False
-
-    for attempt in range(MAX_RETRIES):
-        try:
-            logger.info(f"Attempting to verify {email} (attempt {attempt+1})")
-            with smtplib.SMTP(SENDGRID_SMTP_SERVER, SENDGRID_PORT, timeout=15) as server:
-                server.starttls()
-                server.login("apikey", api_key)
-                
-                server.ehlo_or_helo_if_needed()
-                server.mail(FROM_ADDRESS)
-                code, message = server.rcpt(email)
-                server.rset()
-                
-                logger.info(f"SMTP response for {email}: {code} - {message.decode()}")
-                
-                if code == 250:
-                    return True
-                if code == 450:
-                    continue
-                return False
-
-        except smtplib.SMTPServerDisconnected:
-            logger.warning(f"SMTP server disconnected (attempt {attempt+1})")
-            time.sleep(2 ** attempt)
-        except Exception as e:
-            logger.error(f"Error verifying {email}: {str(e)}")
-            break
-
-    return False
 
 def find_valid_email(first_name: str, last_name: str, domain: str) -> str | None:
     """Find valid email based on first successful verification"""
@@ -94,24 +76,19 @@ def find_valid_email(first_name: str, last_name: str, domain: str) -> str | None
         return None
 
     candidates = generate_email_combinations(first_name, last_name, domain)
-    
-    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-        # Submit all candidates for verification
-        future_to_email = {
-            executor.submit(verify_email_smtp, email): email
-            for email in candidates
-            if is_valid_email_format(email)
-        }
+    if not MAILTESTER_API_KEY:
+        logger.info("MAILTESTER_API_KEY not set")
+        return None
+    token = get_mailtester_token(MAILTESTER_API_KEY)
+    if not token:
+        return None
 
-        # Process results in completion order (not priority order)
-        for future in as_completed(future_to_email):
-            email = future_to_email[future]
+    for email in candidates:
+        if is_valid_email_format(email):
             try:
-                if future.result():
+                if verify_email_api(email, token):
                     logger.info(f"First accepted email: {email}")
-                    executor.shutdown(wait=False, cancel_futures=True)
                     return email
-                time.sleep(REQUEST_DELAY)
             except Exception as e:
                 logger.error(f"Verification failed for {email}: {str(e)}")
 

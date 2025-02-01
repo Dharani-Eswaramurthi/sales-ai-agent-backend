@@ -229,6 +229,7 @@ class DecisionMakerRequest(BaseModel):
     user_id: str
     company_name: str
     domain_name: str
+    industry: str
 
 class EmailProposalRequest(BaseModel):
     product_description: str
@@ -290,6 +291,7 @@ class GeneratedCompanyUpdateRequest(BaseModel):
     decision_maker_email: Optional[str] = None  # New field
     decision_maker_position: Optional[str] = None  # New field
     failed_company: Optional[bool] = False  # New field
+    domain_name: Optional[str] = None
 
 # OpenAI and Perplexity Configuration
 API_KEY = os.getenv("PERPLEXITY_API_KEY")
@@ -416,17 +418,24 @@ def get_potential_companies(request: ProductRequest):
                 - **Product Description**: {request.product_description or 'N/A'}
                 - **Existing Customers**: {', '.join(request.existing_customers) if request.existing_customers else 'N/A'}
                 - **Target Industries**: {', '.join(request.target_industries) if request.target_industries else 'N/A'}
+                - **Target Employee Count**: {request.target_min_emp_count or 'N/A'} to {request.target_max_emp_count or 'N/A'}
                 - **Target Geographical Locations**: {', '.join(request.target_geo_loc) if request.target_geo_loc else 'N/A'}
                 - **Target Business Models**: {', '.join(request.target_business_model) if request.target_business_model else 'N/A'}
-                - **Addressing Pain Points**: {', '.join(request.addressing_pain_points) if request.addressing_pain_points else 'N/A'} 
+                - **Addressing Pain Points**: {', '.join(request.addressing_pain_points) if request.addressing_pain_points else 'N/A'}
+
+                ### Instructions:
+                - **Data Accuracy**: Ensure all company details, especially domain names, are accurate and verified through reliable sources. Avoid assumptions or unverifiable information.
+                - **Web Browsing**: Utilize official company websites, reputable business directories, and recent news articles to gather current and precise information.
+                - **Exclusions**: Strictly exclude companies listed under 'Existing Customers'.
 
                 ### Output Format:
-                Provide only a list of dictionaries, each containing:
+                Provide a list of dictionaries, each containing:
                 - name: Company name
                 - industry: Industry type
-                - domain: Company's domain name formatted like example.com
+                - domain: Company's domain name (ensure accuracy; exclude 'www.', 'http://', or 'https://')
 
-                Ensure that the output strictly adheres to this format and includes only the top {request.limit} potential companies that meet all specified criteria. 
+                Ensure that the output strictly adheres to this format and includes only the top {request.limit} potential companies that meet all specified criteria. If certain details cannot be verified, omit those companies from the list. Provide only the JSON as output without any additional text or content.
+
                 NOTE: STRICTLY, exclude the companies that are mentioned in the "Existing Customers". Provide only the JSON as output. Do not include any additional text or content in the output.
                 """
 
@@ -460,10 +469,23 @@ def get_potential_decision_makers(request: DecisionMakerRequest):
     comp_name = request.company_name
     api_key = 'AIzaSyAHjNQVQJEjBHhk5KlFSDBenulfbmv3qIw'
     search_engine_id = '82bd22c03bc644768'
-    positions = ['CEO', 'Co-CEO', 'VP']
+    domain_search_engine_id = "b3f3cc0fc7e0940de"
+
+    query = f"{request.domain_name}"
+    print("QUERY: ", query)
+    result = google_search(api_key, domain_search_engine_id, query, limit=1)
+    domain_docs = [item.get('link') for item in result.get('items', [])]
+
+    print("DOMAIN DOCS: ", domain_docs)
+
+    # domain may be in the form of https://www.example.com or https://example.com
+    domain = domain_docs[0].split('//')[-1].split('/')[0].replace('www.', '')
+    print(domain)
+
+    positions = ['CEO', 'Founder', 'VP', 'Sales Person']
     results = []
     for i in positions:
-        query = f"{i} at {request.domain_name} site:linkedin.com"
+        query = f"Current {i} at {domain} site:linkedin.com"
         result = google_search(api_key, search_engine_id, query, limit=5)  # Set limit to 5
         # Process results
         ref_res = []
@@ -497,9 +519,9 @@ def get_potential_decision_makers(request: DecisionMakerRequest):
                 List of Scrapped Decision Makers of the company {comp_name} from LinkedIn: {scrapped_docs}
 
                 Output Format:
-                ( Provide only the dictionary as output of the company {comp_name} with decision maker name as key and decision maker position as value. Add another item in the dictionary in format decision make name + 'linkedin as key and the profile link as the value. )
+                ( Provide only the dictionary as output of the company {comp_name} with decision maker name as key and decision maker position as value. Add another item in the dictionary in format decision make name + " linkedin" as key and the profile link as the value. )
 
-                NOTE: STRICTLY, Do not add any other text, explanation or comments, except the JSON in the output.
+                NOTE: STRICTLY, Do not add any other text, explanation or comments, by assuming except the JSON in the output.
 
                 """
     
@@ -531,7 +553,7 @@ def get_potential_decision_makers(request: DecisionMakerRequest):
 
     print("Decision makers found and formatted for ", comp_name,"and they are", api_response)
 
-    company = {'name': comp_name, 'decision_maker': None, 'decision_maker_mail': None, 'decision_maker_position': None, 'linkedin_url': None}
+    company = {'name': comp_name, 'decision_maker': None, 'decision_maker_mail': None, 'decision_maker_position': None, 'linkedin_url': None, 'domain': domain}
 
     for key, value in api_response.items():
         company['decision_maker'] = key
@@ -548,7 +570,6 @@ def get_potential_decision_makers(request: DecisionMakerRequest):
         elif len(key.split(' ')) == 1:
             first_name = key
 
-        domain = request.domain_name
         valid_email = find_valid_email(first_name, last_name, domain)
         if valid_email:
             company['decision_maker_mail'] = valid_email
@@ -1402,6 +1423,8 @@ def update_generated_company_status(request: GeneratedCompanyUpdateRequest, user
         company.decision_maker_email = request.decision_maker_email  # New field
     if request.decision_maker_position:
         company.decision_maker_position = request.decision_maker_position  # New field
+    if request.domain_name:
+        company.domain = request.domain_name
     if request.failed_company == True:
         if company.failed_company == False:
             user = db.query(User).filter(User.id == user_id).first()

@@ -71,6 +71,13 @@ def create_access_token(data: dict, expires_delta: timedelta = None):
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
 
+def generate_unique_uuid(db: Session, table, column):
+    while True:
+        new_uuid = str(uuid.uuid4())
+        exists = db.query(table).filter(column == new_uuid).first()
+        if not exists:
+            return new_uuid
+
 # Email Tracking Model
 class EmailStatus(Base):
     __tablename__ = "email_status"
@@ -324,7 +331,7 @@ def register_user(user: UserCreate, db: Session = Depends(get_db)):
     if db_user:
         raise HTTPException(status_code=400, detail="User already registered")
     otp = random.randint(100000, 999999)
-    user_id = 'user_'+str(uuid.uuid4())  # Generate a unique UUID for the user ID
+    user_id = 'user_' + generate_unique_uuid(db, User, User.id)  # Generate a unique UUID for the user ID
     new_user = User(
         id=user_id,  # Set the user ID
         username=user.email.split('@')[0],  # Use the email prefix as the username
@@ -775,7 +782,7 @@ async def send_email(email: EmailData, user_id: str, user_email: str, encrypted_
         raise HTTPException(status_code=400, detail="Invalid encrypted password")
 
     # Generate unique tracking ID
-    tracking_id = 'tracking_'+str(uuid.uuid4())
+    tracking_id = 'tracking_' + generate_unique_uuid(db, EmailStatus, EmailStatus.id)
 
     # Save tracking info in the database
     try:
@@ -1028,7 +1035,7 @@ async def track(tracking_id: str):
         db.close()
 
 @app.get("/track-response/{tracking_id}/{response}")
-async def track(tracking_id: str, response: str):
+async def track_response(tracking_id: str, response: str):
     # Update the email status to "Opened" in the database
     db = SessionLocal()
     email_entry = db.query(EmailStatus).filter(EmailStatus.id == tracking_id).first()
@@ -1172,7 +1179,7 @@ async def send_followup_email(user_id: str, user_email: str, encrypted_password:
         if not followup_data:
             # insert a followup mail
             new_followup = FollowupStatus(
-                followup_id='followup_'+str(uuid.uuid4()),
+                followup_id='followup_' + generate_unique_uuid(db, FollowupStatus, FollowupStatus.followup_id),
                 user_id=user_id,  # Set the user_id
                 email_uid=followup.email_uid,
                 followup_date=datetime.utcnow(),
@@ -1400,6 +1407,7 @@ def delete_entity(id: str, user_id: str, db: Session = Depends(get_db)):
 @app.post("/add_product")
 def add_product(user_id: str, request: ProductRequest, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.id == user_id).first()
+    
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     
@@ -1632,7 +1640,7 @@ def add_generated_companies(request: GeneratedCompanyRequest, user_id: str, db: 
     try:
         for company in request.companies:
             new_company = GeneratedCompany(
-                id='generatedCompany_'+str(uuid.uuid4()),  # Ensure unique ID
+                id='generatedCompany_' + generate_unique_uuid(db, GeneratedCompany, GeneratedCompany.id),  # Ensure unique ID
                 user_id=user_id,
                 product_id=request.product_id,
                 company_name=company["name"],

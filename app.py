@@ -349,98 +349,74 @@ def register_user(user: UserCreate, db: Session = Depends(get_db)):
     body = f"""<!DOCTYPE html>
                 <html lang="en">
                 <head>
-                <meta charset="UTF-8">
-                <meta name="viewport" content="width=device-width, initial-scale=1">
-                <title>OTP Verification - Lead Stream</title>
-                <style>
-                    /* Basic Reset */
-                    * {{
-                    margin: 0;
-                    padding: 0;
-                    box-sizing: border-box;
-                    }}
-                    /* Body Styling */
-                    body {{
-                    background-color: rgb(89,227,167);
-                    font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    min-height: 100vh;
-                    position: relative;
-                    }}
-                    /* Wrapper to align logo with container */
-                    .wrapper {{
-                    display: flex;
-                    flex-direction: column;
-                    align-items: flex-start;
-                    }}
-                    /* Logo Styling */
-                    .logo {{
-                    height: 75px;
-                    margin-bottom: 20px;
-                    margin-left: 10px;
-                    }}
-                    /* Card Container */
-                    .card {{
-                    background: #fff;
-                    border-radius: 10px;
-                    width: 320px;
-                    padding: 30px 20px;
-                    box-shadow: 0 8px 16px rgba(0, 0, 0, 0.2);
-                    text-align: center;
-                    }}
-                    /* Header Style */
-                    .card h2 {{
-                    font-size: 24px;
-                    color: #2c3e50;
-                    margin-bottom: 10px;
-                    }}
-                    /* Paragraph Styling */
-                    .card p {{
-                    font-size: 14px;
-                    color: #7f8c8d;
-                    margin-bottom: 20px;
-                    }}
-                    /* OTP Code Styling */
-                    .otp-code {{
-                    font-size: 32px;
-                    font-weight: bold;
-                    color: #4ca1af;
-                    letter-spacing: 2px;
-                    margin-bottom: 20px;
-                    }}
-                    /* Brand Footer */
-                    .footer {{
-                    margin-top: 20px;
-                    font-size: 12px;
-                    color: #95a5a6;
-                    }}
-                    .footer a {{
-                    text-decoration: none;
-                    color: inherit;
-                    }}
-                </style>
+                    <meta charset="UTF-8">
+                    <meta name="viewport" content="width=device-width, initial-scale=1">
+                    <title>OTP Verification - Lead Stream</title>
                 </head>
-                <body>
-                <!-- Wrapper containing logo and email content -->
-                <div class="wrapper">
-                    <!-- Heuro Logo -->
-                    <img src="https://twingenfuelfiles.blob.core.windows.net/lead-stream/heuro.png" alt="Heuro Logo" class="logo">
-                    
-                    <div class="card">
-                        <h2>Lead Stream OTP Verification</h2>
-                        <p>Please use the following code to verify your account:</p>
-                        <div class="otp-code">{otp}</div>
-                        <p>This code will expire in 10 minutes.</p>
-                        <div class="footer">
-                        Lead Stream is a product of <a href="https://heuro.in" target="_blank">heuro.in</a>
-                        </div>
-                    </div>
-                </div>
+                <body style="background-color: rgb(89,227,167); margin: 0; padding: 20px; font-family: Arial, sans-serif; text-align: center;">
+
+                    <!-- Wrapper Table to Center Everything -->
+                    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+                        <tr>
+                            <td align="center">
+
+                                <!-- Logo Row (Placed Above the Container) -->
+                                <table role="presentation" width="360px" cellspacing="0" cellpadding="0" border="0">
+                                    <tr>
+                                        <td align="center" style="padding-bottom: 15px;">
+                                            <img src="https://twingenfuelfiles.blob.core.windows.net/lead-stream/heuro.png" alt="Heuro Logo" width="80">
+                                        </td>
+                                    </tr>
+                                </table>
+
+                                <!-- Email Container -->
+                                <table role="presentation" width="360px" cellspacing="0" cellpadding="0" border="0" style="background-color: #ffffff; border-radius: 10px; box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1); padding: 20px; text-align: center;">
+                                    
+                                    <!-- Title -->
+                                    <tr>
+                                        <td style="font-size: 22px; font-weight: bold; color: #2c3e50; padding-bottom: 10px;">
+                                            Lead Stream OTP Verification
+                                        </td>
+                                    </tr>
+
+                                    <!-- Message -->
+                                    <tr>
+                                        <td style="font-size: 14px; color: #7f8c8d; padding-bottom: 20px;">
+                                            Please use the following code to verify your account:
+                                        </td>
+                                    </tr>
+
+                                    <!-- OTP Code -->
+                                    <tr>
+                                        <td style="font-size: 30px; font-weight: bold; color: #4ca1af; letter-spacing: 2px; padding: 10px; border: 2px solid #4ca1af; border-radius: 5px; display: inline-block;">
+                                            {otp}
+                                        </td>
+                                    </tr>
+
+                                    <!-- Expiry Notice -->
+                                    <tr>
+                                        <td style="font-size: 14px; color: #7f8c8d; padding-top: 20px;">
+                                            This code will expire in 10 minutes.
+                                        </td>
+                                    </tr>
+
+                                    <!-- Footer -->
+                                    <tr>
+                                        <td style="font-size: 12px; color: #95a5a6; padding-top: 20px;">
+                                            Lead Stream is a product of <a href="https://heuro.in" target="_blank" style="color: #4ca1af; text-decoration: none;">heuro.in</a>
+                                        </td>
+                                    </tr>
+
+                                </table>
+                                
+                            </td>
+                        </tr>
+                    </table>
+
                 </body>
                 </html>
                 """
+
     msg.attach(MIMEText(body, 'html'))
 
     try:
@@ -831,85 +807,69 @@ async def send_email(email: EmailData, user_id: str, user_email: str, encrypted_
 
     # Email content with tracking pixel
     html_body = f"""
-    <html>
-    <head>
-        <meta charset="UTF-8">
-        <title>Email Notification</title>
-        <style>
-        /* Body Styling */
-        body {{
-            background-color: rgb(89,227,167);
-            font-family: Arial, sans-serif;
-            padding: 20px;
-            color: #333;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-        }}
-        /* Wrapper to align logo with container */
-        .wrapper {{
-            display: flex;
-            flex-direction: column;
-            align-items: flex-start;
-        }}
-        /* Logo styling: positioned above the container */
-        .logo {{
-            height: 75px;
-            margin-bottom: 20px;
-            margin-left: 10px;
-        }}
-        /* Email Container */
-        .container {{
-            background: #ffffff;
-            max-width: 600px;
-            padding: 20px;
-            border-radius: 8px;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-            line-height: 1.6;
-        }}
-        /* Tracking Pixel */
-        .tracking-pixel {{
-            display: none;
-        }}
-        /* Action Links as Buttons */
-        .actions a {{
-            display: inline-block;
-            margin: 10px 10px 0 0;
-            text-decoration: none;
-            background: rgb(89,227,167);
-            color: #ffffff;
-            padding: 10px 20px;
-            border-radius: 5px;
-            border: 2px solid rgb(89,227,167);
-            transition: background-color 0.3s, color 0.3s, border-color 0.3s;
-        }}
-        .actions a:hover {{
-            background: #ffffff;
-            color: rgb(89,227,167);
-            border: 2px solid rgb(89,227,167);
-        }}
-        </style>
-    </head>
-    <body>
-        <!-- Wrapper containing logo and email content -->
-        <div class="wrapper">
-            <!-- Heuro Logo -->
-            <img src="https://twingenfuelfiles.blob.core.windows.net/lead-stream/heuro.png" alt="Heuro Logo" class="logo">
-            
-            <!-- Email Content Container -->
-            <div class="container">
-                <p>{body}</p>
-                <img class="tracking-pixel" src="https://sales-ai-agent-backend-e3h0gzfxduabejdz.centralindia-01.azurewebsites.net/track/{tracking_id}" width="3" height="3" alt="tracking pixel" />
-                <div class="actions">
-                    <a href="https://sales-ai-agent-backend-e3h0gzfxduabejdz.centralindia-01.azurewebsites.net/track-response/{tracking_id}/interested">Interested</a>
-                    <a href="https://sales-ai-agent-backend-e3h0gzfxduabejdz.centralindia-01.azurewebsites.net/track-response/{tracking_id}/not-interested">Not Interested</a>
-                </div>
-            </div>
-        </div>
-    </body>
-    </html>
-    """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Email Notification</title>
+</head>
+<body style="background-color: rgb(89,227,167); font-family: Arial, sans-serif; margin: 0; padding: 20px; text-align: center;">
+
+    <!-- Outer Table (Centers Content) -->
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+        <tr>
+            <td align="center">
+
+                <!-- Logo Row -->
+                <table role="presentation" width="600px" cellspacing="0" cellpadding="0" border="0">
+                    <tr>
+                        <td align="center" style="padding-bottom: 15px;">
+                            <img src="https://twingenfuelfiles.blob.core.windows.net/lead-stream/heuro.png" alt="Heuro Logo" width="80">
+                        </td>
+                    </tr>
+                </table>
+
+                <!-- Email Container -->
+                <table role="presentation" width="600px" cellspacing="0" cellpadding="0" border="0" style="background-color: #ffffff; border-radius: 8px; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15); padding: 20px; text-align: center;">
+                    
+                    <!-- Email Body Content -->
+                    <tr>
+                        <td style="font-size: 16px; color: #333; line-height: 1.6; padding-bottom: 20px;">
+                            {body}
+                        </td>
+                    </tr>
+
+                    <!-- Tracking Pixel (Hidden) -->
+                    <tr>
+                        <td>
+                            <img src="https://sales-ai-agent-backend-e3h0gzfxduabejdz.centralindia-01.azurewebsites.net/track/{tracking_id}" width="3" height="3" alt="tracking pixel" style="display: none;">
+                        </td>
+                    </tr>
+
+                    <!-- Action Buttons -->
+                    <tr>
+                        <td style="padding-top: 20px;">
+                            <a href="https://sales-ai-agent-backend-e3h0gzfxduabejdz.centralindia-01.azurewebsites.net/track-response/{tracking_id}/interested"
+                                style="display: inline-block; background: rgb(89,227,167); color: #ffffff; text-decoration: none; padding: 12px 24px; border-radius: 5px; font-size: 16px; margin-right: 10px;">
+                                Interested
+                            </a>
+                            <a href="https://sales-ai-agent-backend-e3h0gzfxduabejdz.centralindia-01.azurewebsites.net/track-response/{tracking_id}/not-interested"
+                                style="display: inline-block; background: #e74c3c; color: #ffffff; text-decoration: none; padding: 12px 24px; border-radius: 5px; font-size: 16px;">
+                                Not Interested
+                            </a>
+                        </td>
+                    </tr>
+
+                </table>
+
+            </td>
+        </tr>
+    </table>
+
+</body>
+</html>
+"""
+
 
     # Send email
     msg = MIMEMultipart()
@@ -928,71 +888,53 @@ async def send_email(email: EmailData, user_id: str, user_email: str, encrypted_
         
         # Send notification email to the sender
         html_body = f"""
-        <html>
-  <head>
+<!DOCTYPE html>
+<html lang="en">
+<head>
     <meta charset="UTF-8">
     <title>Email Confirmation - Lead Stream</title>
-    <style>
-      /* Reset default margins and paddings */
-      * {{
-        margin: 0;
-        padding: 0;
-        box-sizing: border-box;
-      }}
-      /* Set the overall body background and typography */
-      body {{
-        background-color: rgb(89,227,167);
-        font-family: Arial, sans-serif;
-        padding: 20px;
-        position: relative;
-        min-height: 100vh;
-      }}
-      /* Wrapper to align logo with container */
-      .wrapper {{
-        display: flex;
-        flex-direction: column;
-        align-items: flex-start;
-      }}
-      /* Logo styling: positioned above the container */
-      .logo {{
-        height: 75px;
-        margin-bottom: 20px;
-        margin-left: 10px;
-      }}
-      /* Container for the email content */
-      .container {{
-        background: #ffffff;
-        max-width: 600px;
-        margin: 80px auto 40px; /* margin-top accounts for logo space */
-        padding: 20px;
-        border-radius: 8px;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-        line-height: 1.6;
-      }}
-      /* Paragraph spacing */
-      .container p {{
-        margin-bottom: 15px;
-      }}
-    </style>
-  </head>
-  <body>
-    <!-- Wrapper containing logo and email content -->
-    <div class="wrapper">
-      <!-- Logo -->
-      <img src="https://twingenfuelfiles.blob.core.windows.net/lead-stream/heuro.png" alt="Heuro Logo" class="logo">
-      
-      <!-- Email Content Container -->
-      <div class="container">
-        <p>Hi {sender_name},</p>
-        <p>Your email to {recipient} has been sent successfully.</p>
-        <p><strong>Subject:</strong> {subject}</p>
-        <p><strong>Body:</strong> {body}</p>
-        <p>Thank you for using Lead Stream!</p>
-      </div>
-    </div>
-  </body>
+</head>
+<body style="background-color: rgb(89,227,167); font-family: Arial, sans-serif; padding: 20px; margin: 0; text-align: center;">
+
+    <!-- Outer Table to Center Content -->
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+        <tr>
+            <td align="center">
+
+                <!-- Logo -->
+                <table role="presentation" width="600px" cellspacing="0" cellpadding="0" border="0">
+                    <tr>
+                        <td align="center" style="padding-bottom: 20px;">
+                            <img src="https://twingenfuelfiles.blob.core.windows.net/lead-stream/heuro.png" alt="Heuro Logo" width="75">
+                        </td>
+                    </tr>
+                </table>
+
+                <!-- Email Content -->
+                <table role="presentation" width="600px" cellspacing="0" cellpadding="0" border="0" 
+                    style="background: #ffffff; border-radius: 8px; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15); padding: 20px; text-align: left;">
+                    
+                    <tr>
+                        <td style="font-size: 16px; color: #333; padding: 10px 20px; line-height: 1.6;">
+                            <p>Hi {sender_name},</p>
+                            <p>Your email to <strong>{recipient}</strong> has been sent successfully.</p>
+                            <p><strong>Subject:</strong> {subject}</p>
+                            <p><strong>Body:</strong></p>
+                            <p>{body}</p>
+                            <p>Thank you for using Lead Stream!</p>
+                        </td>
+                    </tr>
+
+                </table>
+
+            </td>
+        </tr>
+    </table>
+
+</body>
 </html>
-        """
+"""
+
         send_notification_email(sender_email, "Email Sent Notification", html_body)
 
         return {"message": "Email sent!"}
@@ -1030,78 +972,55 @@ async def track(tracking_id: str):
         
         # Send notification email to the sender
         html_body = f"""
-        <html>
-        <head>
-            <meta charset="UTF-8">
-            <title>Lead Stream Notification</title>
-            <style>
-            /* Reset default margins and paddings */
-            * {{
-                margin: 0;
-                padding: 0;
-                box-sizing: border-box;
-            }}
-            /* Set the overall body background and typography */
-            body {{
-                background-color: rgb(89,227,167);
-                font-family: Arial, sans-serif;
-                padding: 20px;
-                position: relative;
-                min-height: 100vh;
-                display: flex;
-                flex-direction: column;
-                align-items: center;
-                justify-content: center;
-            }}
-            /* Wrapper to align logo with container */
-            .wrapper {{
-                display: flex;
-                flex-direction: column;
-                align-items: flex-start;
-            }}
-            /* Logo styling: positioned above the container */
-            .logo {{
-                height: 75px;
-                margin-bottom: 20px;
-                margin-left: 10px;
-            }}
-            /* Container for the email content */
-            .container {{
-                background: #ffffff;
-                max-width: 600px;
-                padding: 20px;
-                border-radius: 8px;
-                box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-                line-height: 1.6;
-            }}
-            /* Paragraph spacing */
-            .container p {{
-                margin-bottom: 15px;
-            }}
-            </style>
-        </head>
-        <body>
-            <!-- Wrapper containing logo and email content -->
-            <div class="wrapper">
-                <!-- Heuro Logo -->
-                <img src="https://twingenfuelfiles.blob.core.windows.net/lead-stream/heuro.png" alt="Heuro Logo" class="logo">
-                
-                <!-- Email Content Container -->
-                <div class="container">
-                    <p>Hi {email_entry.sender_name},</p>
-                    <p>Lead Stream has a new notification for you!</p>
-                    <p>{email_entry.dm_name} has opened your mail and not yet responded.</p>
-                    <p>Here is the email that was sent to {email_entry.email_id}:</p>
-                    <p><strong>Subject:</strong> {email_entry.email_subject}</p>
-                    <p><strong>Body:</strong> {email_entry.email_body}</p>
-                    <p>Please check the email and take the necessary action.</p>
-                    <p>Thank you for using Lead Stream!</p>
-                </div>
-            </div>
-        </body>
-        </html>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Lead Stream Notification</title>
+</head>
+<body style="background-color: rgb(89,227,167); font-family: Arial, sans-serif; padding: 20px; margin: 0; text-align: center;">
 
-        """
+    <!-- Outer Table to Center Content -->
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+        <tr>
+            <td align="center">
+
+                <!-- Logo -->
+                <table role="presentation" width="600px" cellspacing="0" cellpadding="0" border="0">
+                    <tr>
+                        <td align="center" style="padding-bottom: 20px;">
+                            <img src="https://twingenfuelfiles.blob.core.windows.net/lead-stream/heuro.png" alt="Heuro Logo" width="75">
+                        </td>
+                    </tr>
+                </table>
+
+                <!-- Email Content -->
+                <table role="presentation" width="600px" cellspacing="0" cellpadding="0" border="0" 
+                    style="background: #ffffff; border-radius: 8px; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15); padding: 20px; text-align: left;">
+                    
+                    <tr>
+                        <td style="font-size: 16px; color: #333; padding: 10px 20px; line-height: 1.6;">
+                            <p>Hi {email_entry.sender_name},</p>
+                            <p><strong>Lead Stream has a new notification for you!</strong></p>
+                            <p>{email_entry.dm_name} has opened your mail but has not yet responded.</p>
+                            <p>Here is the email that was sent to <strong>{email_entry.email_id}</strong>:</p>
+                            <p><strong>Subject:</strong> {email_entry.email_subject}</p>
+                            <p><strong>Body:</strong> {email_entry.email_body}</p>
+                            <p>Please check the email and take the necessary action.</p>
+                            <p>Thank you for using Lead Stream!</p>
+                        </td>
+                    </tr>
+
+                </table>
+
+            </td>
+        </tr>
+    </table>
+
+</body>
+</html>
+"""
+
         send_notification_email(email_entry.sender_email, "New Notification from Lead Stream!", html_body)
 
         print(f"Email with Tracking ID: {tracking_id} has been opened.")
@@ -1182,75 +1101,52 @@ def get_email_reminder(tracking_id: str, user_id: str, request: ReminderRequest,
 
     # Send notification email to the sender
     html_body = f"""
-    <html>
-    <head>
-        <meta charset="UTF-8">
-        <title>Lead Stream - Reminder Sent</title>
-        <style>
-        /* Reset default margins and paddings */
-        * {{
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }}
-        /* Set the overall body background and typography */
-        body {{
-            background-color: rgb(89,227,167);
-            font-family: Arial, sans-serif;
-            padding: 20px;
-            position: relative;
-            min-height: 100vh;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-        }}
-        /* Wrapper to align logo with container */
-        .wrapper {{
-            display: flex;
-            flex-direction: column;
-            align-items: flex-start;
-        }}
-        /* Logo styling: positioned above the container */
-        .logo {{
-            height: 75px;
-            margin-bottom: 20px;
-            margin-left: 10px;
-        }}
-        /* Container for the email content */
-        .container {{
-            background: #ffffff;
-            max-width: 600px;
-            padding: 20px;
-            border-radius: 8px;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-            line-height: 1.6;
-        }}
-        /* Paragraph spacing */
-        .container p {{
-            margin-bottom: 15px;
-        }}
-        </style>
-    </head>
-    <body>
-        <!-- Wrapper containing logo and email content -->
-        <div class="wrapper">
-            <!-- Heuro Logo -->
-            <img src="https://twingenfuelfiles.blob.core.windows.net/lead-stream/heuro.png" alt="Heuro Logo" class="logo">
-            
-            <!-- Email Content Container -->
-            <div class="container">
-            <p>Hi {email.sender_name},</p>
-            <p>Reminder has been sent to {email.email_id}.</p>
-            <p><strong>Subject:</strong> {subject}</p>
-            <p><strong>Body:</strong> {body}</p>
-            <p>Thank you for using Lead Stream!</p>
-            </div>
-        </div>
-    </body>
-    </html>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Lead Stream - Reminder Sent</title>
+</head>
+<body style="background-color: rgb(89,227,167); font-family: Arial, sans-serif; padding: 20px; margin: 0; text-align: center;">
 
-    """
+    <!-- Outer Table to Center Content -->
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+        <tr>
+            <td align="center">
+
+                <!-- Logo -->
+                <table role="presentation" width="600px" cellspacing="0" cellpadding="0" border="0">
+                    <tr>
+                        <td align="center" style="padding-bottom: 20px;">
+                            <img src="https://twingenfuelfiles.blob.core.windows.net/lead-stream/heuro.png" alt="Heuro Logo" width="75">
+                        </td>
+                    </tr>
+                </table>
+
+                <!-- Email Content -->
+                <table role="presentation" width="600px" cellspacing="0" cellpadding="0" border="0" 
+                    style="background: #ffffff; border-radius: 8px; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15); padding: 20px; text-align: left;">
+                    
+                    <tr>
+                        <td style="font-size: 16px; color: #333; padding: 10px 20px; line-height: 1.6;">
+                            <p>Hi {email.sender_name},</p>
+                            <p>Reminder has been sent to <strong>{email.email_id}</strong>.</p>
+                            <p><strong>Subject:</strong> {subject}</p>
+                            <p><strong>Body:</strong> {body}</p>
+                            <p>Thank you for using Lead Stream!</p>
+                        </td>
+                    </tr>
+
+                </table>
+
+            </td>
+        </tr>
+    </table>
+
+</body>
+</html>
+"""
+
     send_notification_email(email.sender_email, "Reminder Email Sent from Lead Stream!", html_body)
 
     return {"subject": subject, "body": body}
@@ -1326,74 +1222,52 @@ async def send_followup_email(user_id: str, user_email: str, encrypted_password:
 
             # Send notification email to the sender
             html_body = f"""
-            <html>
-    <head>
-        <meta charset="UTF-8">
-        <title>Follow-Up Email Sent - Lead Stream</title>
-        <style>
-        /* Reset default margins and paddings */
-        * {{
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }}
-        /* Set the overall body background and typography */
-        body {{
-            background-color: rgb(89,227,167);
-            font-family: Arial, sans-serif;
-            padding: 20px;
-            position: relative;
-            min-height: 100vh;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-        }}
-        /* Wrapper to align logo with container */
-        .wrapper {{
-            display: flex;
-            flex-direction: column;
-            align-items: flex-start;
-        }}
-        /* Logo styling: positioned above the container */
-        .logo {{
-            height: 75px;
-            margin-bottom: 20px;
-            margin-left: 10px;
-        }}
-        /* Container for the email content */
-        .container {{
-            background: #ffffff;
-            max-width: 600px;
-            padding: 20px;
-            border-radius: 8px;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-            line-height: 1.6;
-        }}
-        /* Paragraph spacing */
-        .container p {{
-            margin-bottom: 15px;
-        }}
-        </style>
-    </head>
-    <body>
-        <!-- Wrapper containing logo and email content -->
-        <div class="wrapper">
-            <!-- Heuro Logo -->
-            <img src="https://twingenfuelfiles.blob.core.windows.net/lead-stream/heuro.png" alt="Heuro Logo" class="logo">
-            
-            <!-- Email Content Container -->
-            <div class="container">
-                <p>Hi {followup.sender_name},</p>
-                <p>Your follow-up email to {followup.recipient} has been sent successfully.</p>
-                <p><strong>Subject:</strong> {followup.subject}</p>
-                <p><strong>Body:</strong> {followup.body}</p>
-                <p>Thank you for using Lead Stream!</p>
-            </div>
-        </div>
-    </body>
-    </html>
-            """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Follow-Up Email Sent - Lead Stream</title>
+</head>
+<body style="background-color: rgb(89,227,167); font-family: Arial, sans-serif; padding: 20px; margin: 0; text-align: center;">
+
+    <!-- Outer Table to Center Content -->
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+        <tr>
+            <td align="center">
+
+                <!-- Logo -->
+                <table role="presentation" width="600px" cellspacing="0" cellpadding="0" border="0">
+                    <tr>
+                        <td align="center" style="padding-bottom: 20px;">
+                            <img src="https://twingenfuelfiles.blob.core.windows.net/lead-stream/heuro.png" alt="Heuro Logo" width="75">
+                        </td>
+                    </tr>
+                </table>
+
+                <!-- Email Content -->
+                <table role="presentation" width="600px" cellspacing="0" cellpadding="0" border="0" 
+                    style="background: #ffffff; border-radius: 8px; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15); padding: 20px; text-align: left;">
+                    
+                    <tr>
+                        <td style="font-size: 16px; color: #333; padding: 10px 20px; line-height: 1.6;">
+                            <p>Hi {followup.sender_name},</p>
+                            <p>Your follow-up email to <strong>{followup.recipient}</strong> has been sent successfully.</p>
+                            <p><strong>Subject:</strong> {followup.subject}</p>
+                            <p><strong>Body:</strong> {followup.body}</p>
+                            <p>Thank you for using Lead Stream!</p>
+                        </td>
+                    </tr>
+
+                </table>
+
+            </td>
+        </tr>
+    </table>
+
+</body>
+</html>
+"""
+
             send_notification_email(user_email, "Follow-up Email Sent Notification", html_body)
 
             return {"message": "Follow-up email sent!"}

@@ -346,8 +346,94 @@ def register_user(user: UserCreate, db: Session = Depends(get_db)):
     msg['From'] = os.getenv('EMAIL_USERNAME')
     msg['To'] = user.email
     msg['Subject'] = "Your OTP Code"
-    body = f"Your OTP code is {otp}"
-    msg.attach(MIMEText(body, 'plain'))
+    body = f"""<!DOCTYPE html>
+                <html lang="en">
+                <head>
+                <meta charset="UTF-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1">
+                <title>OTP Verification - Lead Stream</title>
+                <style>
+                    /* Basic Reset */
+                    * {{
+                    margin: 0;
+                    padding: 0;
+                    box-sizing: border-box;
+                    }}
+                    /* Body Styling */
+                    body {{
+                    background-color: rgb(89,227,167);
+                    font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    min-height: 100vh;
+                    position: relative;
+                    }}
+                    /* Logo Styling */
+                    .logo {{
+                    position: absolute;
+                    top: 20px;
+                    left: 20px;
+                    height: 40px;
+                    }}
+                    /* Card Container */
+                    .card {{
+                    background: #fff;
+                    border-radius: 10px;
+                    width: 320px;
+                    padding: 30px 20px;
+                    box-shadow: 0 8px 16px rgba(0, 0, 0, 0.2);
+                    text-align: center;
+                    }}
+                    /* Header Style */
+                    .card h2 {{
+                    font-size: 24px;
+                    color: #2c3e50;
+                    margin-bottom: 10px;
+                    }}
+                    /* Paragraph Styling */
+                    .card p {{
+                    font-size: 14px;
+                    color: #7f8c8d;
+                    margin-bottom: 20px;
+                    }}
+                    /* OTP Code Styling */
+                    .otp-code {{
+                    font-size: 32px;
+                    font-weight: bold;
+                    color: #4ca1af;
+                    letter-spacing: 2px;
+                    margin-bottom: 20px;
+                    }}
+                    /* Brand Footer */
+                    .footer {{
+                    margin-top: 20px;
+                    font-size: 12px;
+                    color: #95a5a6;
+                    }}
+                    .footer a {{
+                    text-decoration: none;
+                    color: inherit;
+                    }}
+                </style>
+                </head>
+                <body>
+                <!-- Heuro Logo -->
+                <img src="https://heuro.in/logo.png" alt="Heuro Logo" class="logo">
+                
+                <div class="card">
+                    <h2>Lead Stream OTP Verification</h2>
+                    <p>Please use the following code to verify your account:</p>
+                    <div class="otp-code">{otp}</div>
+                    <p>This code will expire in 10 minutes.</p>
+                    <div class="footer">
+                    Lead Stream is a product of <a href="https://heuro.in" target="_blank">heuro.in</a>
+                    </div>
+                </div>
+                </body>
+                </html>
+                """
+    msg.attach(MIMEText(body, 'html'))
 
     try:
         with smtplib.SMTP(os.getenv('SMTP_SERVER'), os.getenv('SMTP_PORT')) as server:
@@ -467,9 +553,9 @@ def get_potential_decision_makers(request: DecisionMakerRequest):
     
     print("Fetching decision makers for ", request.company_name)
     comp_name = request.company_name
-    api_key = 'AIzaSyAHjNQVQJEjBHhk5KlFSDBenulfbmv3qIw'
-    search_engine_id = '82bd22c03bc644768'
-    domain_search_engine_id = "b3f3cc0fc7e0940de"
+    api_key = os.getenv('GOOGLE_API_KEY')
+    search_engine_id = os.getenv('SEARCH_ENGINE_ID')
+    domain_search_engine_id = os.getenv('DOMAIN_SEARCH_ENGINE_ID')
 
     query = f"{request.domain_name}"
     print("QUERY: ", query)
@@ -738,12 +824,59 @@ async def send_email(email: EmailData, user_id: str, user_email: str, encrypted_
     # Email content with tracking pixel
     html_body = f"""
     <html>
-        <body>
-            <p>{body}</p>
-            <img src="https://sales-ai-agent-backend-e3h0gzfxduabejdz.centralindia-01.azurewebsites.net/track/{tracking_id}" width="3" height="3" style="display:none;" />
-            <a href="https://sales-ai-agent-backend-e3h0gzfxduabejdz.centralindia-01.azurewebsites.net/track-response/{tracking_id}/interested">Interested</a><br/>
+    <head>
+        <meta charset="UTF-8">
+        <title>Email Notification</title>
+        <style>
+        /* Body Styling */
+        body {{
+            background-color: rgb(89,227,167);
+            font-family: Arial, sans-serif;
+            padding: 20px;
+            color: #333;
+        }}
+        /* Email Container */
+        .container {{
+            background: #ffffff;
+            max-width: 600px;
+            margin: 40px auto;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        }}
+        /* Tracking Pixel */
+        .tracking-pixel {{
+            display: none;
+        }}
+        /* Action Links as Buttons */
+        .actions a {{
+            display: inline-block;
+            margin: 10px 10px 0 0;
+            text-decoration: none;
+            background: rgb(89,227,167);
+            color: #ffffff;
+            padding: 10px 20px;
+            border-radius: 5px;
+            border: 2px solid rgb(89,227,167);
+            transition: background-color 0.3s, color 0.3s, border-color 0.3s;
+        }}
+        .actions a:hover {{
+            background: #ffffff;
+            color: rgb(89,227,167);
+            border: 2px solid rgb(89,227,167);
+        }}
+        </style>
+    </head>
+    <body>
+        <div class="container">
+        <p>{body}</p>
+        <img class="tracking-pixel" src="https://sales-ai-agent-backend-e3h0gzfxduabejdz.centralindia-01.azurewebsites.net/track/{tracking_id}" width="3" height="3" alt="tracking pixel" />
+        <div class="actions">
+            <a href="https://sales-ai-agent-backend-e3h0gzfxduabejdz.centralindia-01.azurewebsites.net/track-response/{tracking_id}/interested">Interested</a>
             <a href="https://sales-ai-agent-backend-e3h0gzfxduabejdz.centralindia-01.azurewebsites.net/track-response/{tracking_id}/not-interested">Not Interested</a>
-        </body>
+        </div>
+        </div>
+    </body>
     </html>
     """
 
@@ -765,14 +898,61 @@ async def send_email(email: EmailData, user_id: str, user_email: str, encrypted_
         # Send notification email to the sender
         html_body = f"""
         <html>
-            <body>
-                <p>Hi {sender_name},</p>
-                <p>Your email to {recipient} has been sent successfully.</p>
-                <p>Subject: {subject}</p>
-                <p>Body: {body}</p>
-                <p>Thank you for using Lead Stream!</p>
-            </body>
-        </html>
+  <head>
+    <meta charset="UTF-8">
+    <title>Email Confirmation - Lead Stream</title>
+    <style>
+      /* Reset default margins and paddings */
+      * {{
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }}
+      /* Set the overall body background and typography */
+      body {{
+        background-color: rgb(89,227,167);
+        font-family: Arial, sans-serif;
+        padding: 20px;
+        position: relative;
+        min-height: 100vh;
+      }}
+      /* Logo styling: positioned at the top left */
+      .logo {{
+        position: absolute;
+        top: 20px;
+        left: 20px;
+        height: 40px;
+      }}
+      /* Container for the email content */
+      .container {{
+        background: #ffffff;
+        max-width: 600px;
+        margin: 80px auto 40px; /* margin-top accounts for logo space */
+        padding: 20px;
+        border-radius: 8px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        line-height: 1.6;
+      }}
+      /* Paragraph spacing */
+      .container p {{
+        margin-bottom: 15px;
+      }}
+    </style>
+  </head>
+  <body>
+    <!-- Logo -->
+    <img src="https://heuro.in/logo.png" alt="Heuro Logo" class="logo">
+    
+    <!-- Email Content Container -->
+    <div class="container">
+      <p>Hi {sender_name},</p>
+      <p>Your email to {recipient} has been sent successfully.</p>
+      <p><strong>Subject:</strong> {subject}</p>
+      <p><strong>Body:</strong> {body}</p>
+      <p>Thank you for using Lead Stream!</p>
+    </div>
+  </body>
+</html>
         """
         send_notification_email(sender_email, "Email Sent Notification", html_body)
 
@@ -805,24 +985,72 @@ async def track(tracking_id: str):
     email_entry = db.query(EmailStatus).filter(EmailStatus.id == tracking_id).first()
 
     if email_entry:
-        email_entry.status = "Not Responded"
+        email_entry.status = "Opened but Not Responded"
         db.commit()
         db.close()
         
         # Send notification email to the sender
         html_body = f"""
         <html>
-            <body>
-                <p>Hi {email_entry.sender_name},</p>
-                <p>Lead Stream has a new notification for you!</p>
-                <p>Here is the email that was sent to {email_entry.email_id}:</p>
-                <p>Subject: {email_entry.email_subject}</p>
-                <p>Body: {email_entry.email_body}</p>
-                <p>Thank you for using Lead Stream!</p>
-                <p>Please check the email and take the necessary action.</p>
-                <p>Thank you for using Lead Stream!</p>
-            </body>
+        <head>
+            <meta charset="UTF-8">
+            <title>Lead Stream Notification</title>
+            <style>
+            /* Reset default margins and paddings */
+            * {{
+                margin: 0;
+                padding: 0;
+                box-sizing: border-box;
+            }}
+            /* Set the overall body background and typography */
+            body {{
+                background-color: rgb(89,227,167);
+                font-family: Arial, sans-serif;
+                padding: 20px;
+                position: relative;
+                min-height: 100vh;
+            }}
+            /* Logo styling: positioned at the top left */
+            .logo {{
+                position: absolute;
+                top: 20px;
+                left: 20px;
+                height: 40px;
+            }}
+            /* Container for the email content */
+            .container {{
+                background: #ffffff;
+                max-width: 600px;
+                margin: 80px auto 40px; /* margin-top accounts for logo space */
+                padding: 20px;
+                border-radius: 8px;
+                box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+                line-height: 1.6;
+            }}
+            /* Paragraph spacing */
+            .container p {{
+                margin-bottom: 15px;
+            }}
+            </style>
+        </head>
+        <body>
+            <!-- Logo -->
+            <img src="https://heuro.in/logo.png" alt="Heuro Logo" class="logo">
+            
+            <!-- Email Content Container -->
+            <div class="container">
+            <p>Hi {email_entry.sender_name},</p>
+            <p>Lead Stream has a new notification for you!</p>
+            <p>{email_entry.dm_name} has opened your mail and not yet responded.</p>
+            <p>Here is the email that was sent to {email_entry.email_id}:</p>
+            <p><strong>Subject:</strong> {email_entry.email_subject}</p>
+            <p><strong>Body:</strong> {email_entry.email_body}</p>
+            <p>Please check the email and take the necessary action.</p>
+            <p>Thank you for using Lead Stream!</p>
+            </div>
+        </body>
         </html>
+
         """
         send_notification_email(email_entry.sender_email, "New Notification from Lead Stream!", html_body)
 
@@ -905,14 +1133,62 @@ def get_email_reminder(tracking_id: str, user_id: str, request: ReminderRequest,
     # Send notification email to the sender
     html_body = f"""
     <html>
-        <body>
-            <p>Hi {email.sender_name},</p>
-            <p>Lead Stream has sent a reminder email to {email.email_id}.</p>
-            <p>Subject: {subject}</p>
-            <p>Body: {body}</p>
-            <p>Thank you for using Lead Stream!</p>
-        </body>
+    <head>
+        <meta charset="UTF-8">
+        <title>Lead Stream - Reminder Sent</title>
+        <style>
+        /* Reset default margins and paddings */
+        * {{
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }}
+        /* Set the overall body background and typography */
+        body {{
+            background-color: rgb(89,227,167);
+            font-family: Arial, sans-serif;
+            padding: 20px;
+            position: relative;
+            min-height: 100vh;
+        }}
+        /* Logo styling: positioned at the top left */
+        .logo {{
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            height: 40px;
+        }}
+        /* Container for the email content */
+        .container {{
+            background: #ffffff;
+            max-width: 600px;
+            margin: 80px auto 40px; /* margin-top accounts for logo space */
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            line-height: 1.6;
+        }}
+        /* Paragraph spacing */
+        .container p {{
+            margin-bottom: 15px;
+        }}
+        </style>
+    </head>
+    <body>
+        <!-- Logo -->
+        <img src="https://heuro.in/logo.png" alt="Heuro Logo" class="logo">
+        
+        <!-- Email Content Container -->
+        <div class="container">
+        <p>Hi {email.sender_name},</p>
+        <p>Reminder has been sent to {email.email_id}.</p>
+        <p><strong>Subject:</strong> {subject}</p>
+        <p><strong>Body:</strong> {body}</p>
+        <p>Thank you for using Lead Stream!</p>
+        </div>
+    </body>
     </html>
+
     """
     send_notification_email(email.sender_email, "Reminder Email Sent from Lead Stream!", html_body)
 
@@ -990,14 +1266,61 @@ async def send_followup_email(user_id: str, user_email: str, encrypted_password:
             # Send notification email to the sender
             html_body = f"""
             <html>
-                <body>
-                    <p>Hi {followup.sender_name},</p>
-                    <p>Your follow-up email to {followup.recipient} has been sent successfully.</p>
-                    <p>Subject: {followup.subject}</p>
-                    <p>Body: {followup.body}</p>
-                    <p>Thank you for using Lead Stream!</p>
-                </body>
-            </html>
+    <head>
+        <meta charset="UTF-8">
+        <title>Follow-Up Email Sent - Lead Stream</title>
+        <style>
+        /* Reset default margins and paddings */
+        * {{
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }}
+        /* Set the overall body background and typography */
+        body {{
+            background-color: rgb(89,227,167);
+            font-family: Arial, sans-serif;
+            padding: 20px;
+            position: relative;
+            min-height: 100vh;
+        }}
+        /* Logo styling: positioned at the top left */
+        .logo {{
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            height: 40px;
+        }}
+        /* Container for the email content */
+        .container {{
+            background: #ffffff;
+            max-width: 600px;
+            margin: 80px auto 40px; /* margin-top accounts for logo space */
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            line-height: 1.6;
+        }}
+        /* Paragraph spacing */
+        .container p {{
+            margin-bottom: 15px;
+        }}
+        </style>
+    </head>
+    <body>
+        <!-- Logo -->
+        <img src="https://heuro.in/logo.png" alt="Heuro Logo" class="logo">
+        
+        <!-- Email Content Container -->
+        <div class="container">
+        <p>Hi {followup.sender_name},</p>
+        <p>Your follow-up email to {followup.recipient} has been sent successfully.</p>
+        <p><strong>Subject:</strong> {followup.subject}</p>
+        <p><strong>Body:</strong> {followup.body}</p>
+        <p>Thank you for using Lead Stream!</p>
+        </div>
+    </body>
+    </html>
             """
             send_notification_email(user_email, "Follow-up Email Sent Notification", html_body)
 

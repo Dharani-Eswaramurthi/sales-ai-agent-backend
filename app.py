@@ -369,12 +369,17 @@ def register_user(user: UserCreate, db: Session = Depends(get_db)):
                     min-height: 100vh;
                     position: relative;
                     }}
+                    /* Wrapper to align logo with container */
+                    .wrapper {{
+                    display: flex;
+                    flex-direction: column;
+                    align-items: flex-start;
+                    }}
                     /* Logo Styling */
                     .logo {{
-                    position: absolute;
-                    top: 20px;
-                    left: 20px;
-                    height: 40px;
+                    height: 75px;
+                    margin-bottom: 20px;
+                    margin-left: 10px;
                     }}
                     /* Card Container */
                     .card {{
@@ -418,16 +423,19 @@ def register_user(user: UserCreate, db: Session = Depends(get_db)):
                 </style>
                 </head>
                 <body>
-                <!-- Heuro Logo -->
-                <img src="https://heuro.in/logo.png" alt="Heuro Logo" class="logo">
-                
-                <div class="card">
-                    <h2>Lead Stream OTP Verification</h2>
-                    <p>Please use the following code to verify your account:</p>
-                    <div class="otp-code">{otp}</div>
-                    <p>This code will expire in 10 minutes.</p>
-                    <div class="footer">
-                    Lead Stream is a product of <a href="https://heuro.in" target="_blank">heuro.in</a>
+                <!-- Wrapper containing logo and email content -->
+                <div class="wrapper">
+                    <!-- Heuro Logo -->
+                    <img src="https://twingenfuelfiles.blob.core.windows.net/lead-stream/heuro.png" alt="Heuro Logo" class="logo">
+                    
+                    <div class="card">
+                        <h2>Lead Stream OTP Verification</h2>
+                        <p>Please use the following code to verify your account:</p>
+                        <div class="otp-code">{otp}</div>
+                        <p>This code will expire in 10 minutes.</p>
+                        <div class="footer">
+                        Lead Stream is a product of <a href="https://heuro.in" target="_blank">heuro.in</a>
+                        </div>
                     </div>
                 </div>
                 </body>
@@ -834,15 +842,31 @@ async def send_email(email: EmailData, user_id: str, user_email: str, encrypted_
             font-family: Arial, sans-serif;
             padding: 20px;
             color: #333;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }}
+        /* Wrapper to align logo with container */
+        .wrapper {{
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+        }}
+        /* Logo styling: positioned above the container */
+        .logo {{
+            height: 75px;
+            margin-bottom: 20px;
+            margin-left: 10px;
         }}
         /* Email Container */
         .container {{
             background: #ffffff;
             max-width: 600px;
-            margin: 40px auto;
             padding: 20px;
             border-radius: 8px;
             box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            line-height: 1.6;
         }}
         /* Tracking Pixel */
         .tracking-pixel {{
@@ -868,13 +892,20 @@ async def send_email(email: EmailData, user_id: str, user_email: str, encrypted_
         </style>
     </head>
     <body>
-        <div class="container">
-        <p>{body}</p>
-        <img class="tracking-pixel" src="https://sales-ai-agent-backend-e3h0gzfxduabejdz.centralindia-01.azurewebsites.net/track/{tracking_id}" width="3" height="3" alt="tracking pixel" />
-        <div class="actions">
-            <a href="https://sales-ai-agent-backend-e3h0gzfxduabejdz.centralindia-01.azurewebsites.net/track-response/{tracking_id}/interested">Interested</a>
-            <a href="https://sales-ai-agent-backend-e3h0gzfxduabejdz.centralindia-01.azurewebsites.net/track-response/{tracking_id}/not-interested">Not Interested</a>
-        </div>
+        <!-- Wrapper containing logo and email content -->
+        <div class="wrapper">
+            <!-- Heuro Logo -->
+            <img src="https://twingenfuelfiles.blob.core.windows.net/lead-stream/heuro.png" alt="Heuro Logo" class="logo">
+            
+            <!-- Email Content Container -->
+            <div class="container">
+                <p>{body}</p>
+                <img class="tracking-pixel" src="https://sales-ai-agent-backend-e3h0gzfxduabejdz.centralindia-01.azurewebsites.net/track/{tracking_id}" width="3" height="3" alt="tracking pixel" />
+                <div class="actions">
+                    <a href="https://sales-ai-agent-backend-e3h0gzfxduabejdz.centralindia-01.azurewebsites.net/track-response/{tracking_id}/interested">Interested</a>
+                    <a href="https://sales-ai-agent-backend-e3h0gzfxduabejdz.centralindia-01.azurewebsites.net/track-response/{tracking_id}/not-interested">Not Interested</a>
+                </div>
+            </div>
         </div>
     </body>
     </html>
@@ -916,12 +947,17 @@ async def send_email(email: EmailData, user_id: str, user_email: str, encrypted_
         position: relative;
         min-height: 100vh;
       }}
-      /* Logo styling: positioned at the top left */
+      /* Wrapper to align logo with container */
+      .wrapper {{
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+      }}
+      /* Logo styling: positioned above the container */
       .logo {{
-        position: absolute;
-        top: 20px;
-        left: 20px;
-        height: 40px;
+        height: 75px;
+        margin-bottom: 20px;
+        margin-left: 10px;
       }}
       /* Container for the email content */
       .container {{
@@ -940,16 +976,19 @@ async def send_email(email: EmailData, user_id: str, user_email: str, encrypted_
     </style>
   </head>
   <body>
-    <!-- Logo -->
-    <img src="https://heuro.in/logo.png" alt="Heuro Logo" class="logo">
-    
-    <!-- Email Content Container -->
-    <div class="container">
-      <p>Hi {sender_name},</p>
-      <p>Your email to {recipient} has been sent successfully.</p>
-      <p><strong>Subject:</strong> {subject}</p>
-      <p><strong>Body:</strong> {body}</p>
-      <p>Thank you for using Lead Stream!</p>
+    <!-- Wrapper containing logo and email content -->
+    <div class="wrapper">
+      <!-- Logo -->
+      <img src="https://twingenfuelfiles.blob.core.windows.net/lead-stream/heuro.png" alt="Heuro Logo" class="logo">
+      
+      <!-- Email Content Container -->
+      <div class="container">
+        <p>Hi {sender_name},</p>
+        <p>Your email to {recipient} has been sent successfully.</p>
+        <p><strong>Subject:</strong> {subject}</p>
+        <p><strong>Body:</strong> {body}</p>
+        <p>Thank you for using Lead Stream!</p>
+      </div>
     </div>
   </body>
 </html>
@@ -1009,19 +1048,27 @@ async def track(tracking_id: str):
                 padding: 20px;
                 position: relative;
                 min-height: 100vh;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
             }}
-            /* Logo styling: positioned at the top left */
+            /* Wrapper to align logo with container */
+            .wrapper {{
+                display: flex;
+                flex-direction: column;
+                align-items: flex-start;
+            }}
+            /* Logo styling: positioned above the container */
             .logo {{
-                position: absolute;
-                top: 20px;
-                left: 20px;
-                height: 40px;
+                height: 75px;
+                margin-bottom: 20px;
+                margin-left: 10px;
             }}
             /* Container for the email content */
             .container {{
                 background: #ffffff;
                 max-width: 600px;
-                margin: 80px auto 40px; /* margin-top accounts for logo space */
                 padding: 20px;
                 border-radius: 8px;
                 box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
@@ -1034,19 +1081,22 @@ async def track(tracking_id: str):
             </style>
         </head>
         <body>
-            <!-- Logo -->
-            <img src="https://heuro.in/logo.png" alt="Heuro Logo" class="logo">
-            
-            <!-- Email Content Container -->
-            <div class="container">
-            <p>Hi {email_entry.sender_name},</p>
-            <p>Lead Stream has a new notification for you!</p>
-            <p>{email_entry.dm_name} has opened your mail and not yet responded.</p>
-            <p>Here is the email that was sent to {email_entry.email_id}:</p>
-            <p><strong>Subject:</strong> {email_entry.email_subject}</p>
-            <p><strong>Body:</strong> {email_entry.email_body}</p>
-            <p>Please check the email and take the necessary action.</p>
-            <p>Thank you for using Lead Stream!</p>
+            <!-- Wrapper containing logo and email content -->
+            <div class="wrapper">
+                <!-- Heuro Logo -->
+                <img src="https://twingenfuelfiles.blob.core.windows.net/lead-stream/heuro.png" alt="Heuro Logo" class="logo">
+                
+                <!-- Email Content Container -->
+                <div class="container">
+                    <p>Hi {email_entry.sender_name},</p>
+                    <p>Lead Stream has a new notification for you!</p>
+                    <p>{email_entry.dm_name} has opened your mail and not yet responded.</p>
+                    <p>Here is the email that was sent to {email_entry.email_id}:</p>
+                    <p><strong>Subject:</strong> {email_entry.email_subject}</p>
+                    <p><strong>Body:</strong> {email_entry.email_body}</p>
+                    <p>Please check the email and take the necessary action.</p>
+                    <p>Thank you for using Lead Stream!</p>
+                </div>
             </div>
         </body>
         </html>
@@ -1150,19 +1200,27 @@ def get_email_reminder(tracking_id: str, user_id: str, request: ReminderRequest,
             padding: 20px;
             position: relative;
             min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
         }}
-        /* Logo styling: positioned at the top left */
+        /* Wrapper to align logo with container */
+        .wrapper {{
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+        }}
+        /* Logo styling: positioned above the container */
         .logo {{
-            position: absolute;
-            top: 20px;
-            left: 20px;
-            height: 40px;
+            height: 75px;
+            margin-bottom: 20px;
+            margin-left: 10px;
         }}
         /* Container for the email content */
         .container {{
             background: #ffffff;
             max-width: 600px;
-            margin: 80px auto 40px; /* margin-top accounts for logo space */
             padding: 20px;
             border-radius: 8px;
             box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
@@ -1175,16 +1233,19 @@ def get_email_reminder(tracking_id: str, user_id: str, request: ReminderRequest,
         </style>
     </head>
     <body>
-        <!-- Logo -->
-        <img src="https://heuro.in/logo.png" alt="Heuro Logo" class="logo">
-        
-        <!-- Email Content Container -->
-        <div class="container">
-        <p>Hi {email.sender_name},</p>
-        <p>Reminder has been sent to {email.email_id}.</p>
-        <p><strong>Subject:</strong> {subject}</p>
-        <p><strong>Body:</strong> {body}</p>
-        <p>Thank you for using Lead Stream!</p>
+        <!-- Wrapper containing logo and email content -->
+        <div class="wrapper">
+            <!-- Heuro Logo -->
+            <img src="https://twingenfuelfiles.blob.core.windows.net/lead-stream/heuro.png" alt="Heuro Logo" class="logo">
+            
+            <!-- Email Content Container -->
+            <div class="container">
+            <p>Hi {email.sender_name},</p>
+            <p>Reminder has been sent to {email.email_id}.</p>
+            <p><strong>Subject:</strong> {subject}</p>
+            <p><strong>Body:</strong> {body}</p>
+            <p>Thank you for using Lead Stream!</p>
+            </div>
         </div>
     </body>
     </html>
@@ -1283,19 +1344,27 @@ async def send_followup_email(user_id: str, user_email: str, encrypted_password:
             padding: 20px;
             position: relative;
             min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
         }}
-        /* Logo styling: positioned at the top left */
+        /* Wrapper to align logo with container */
+        .wrapper {{
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+        }}
+        /* Logo styling: positioned above the container */
         .logo {{
-            position: absolute;
-            top: 20px;
-            left: 20px;
-            height: 40px;
+            height: 75px;
+            margin-bottom: 20px;
+            margin-left: 10px;
         }}
         /* Container for the email content */
         .container {{
             background: #ffffff;
             max-width: 600px;
-            margin: 80px auto 40px; /* margin-top accounts for logo space */
             padding: 20px;
             border-radius: 8px;
             box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
@@ -1308,16 +1377,19 @@ async def send_followup_email(user_id: str, user_email: str, encrypted_password:
         </style>
     </head>
     <body>
-        <!-- Logo -->
-        <img src="https://heuro.in/logo.png" alt="Heuro Logo" class="logo">
-        
-        <!-- Email Content Container -->
-        <div class="container">
-        <p>Hi {followup.sender_name},</p>
-        <p>Your follow-up email to {followup.recipient} has been sent successfully.</p>
-        <p><strong>Subject:</strong> {followup.subject}</p>
-        <p><strong>Body:</strong> {followup.body}</p>
-        <p>Thank you for using Lead Stream!</p>
+        <!-- Wrapper containing logo and email content -->
+        <div class="wrapper">
+            <!-- Heuro Logo -->
+            <img src="https://twingenfuelfiles.blob.core.windows.net/lead-stream/heuro.png" alt="Heuro Logo" class="logo">
+            
+            <!-- Email Content Container -->
+            <div class="container">
+                <p>Hi {followup.sender_name},</p>
+                <p>Your follow-up email to {followup.recipient} has been sent successfully.</p>
+                <p><strong>Subject:</strong> {followup.subject}</p>
+                <p><strong>Body:</strong> {followup.body}</p>
+                <p>Thank you for using Lead Stream!</p>
+            </div>
         </div>
     </body>
     </html>

@@ -169,7 +169,7 @@ class EmailProposalSystem:
         4. Use {decision_maker_profile.get('communication_style', 'professional')} tone
         5. You need to format the email correctly e.g,
         6. Do not assume any additional information not provided in the context. Include a dummy placeholder if needed.
-        7. Include relevant HTML formatting
+        7. Include relevant HTML tags for formatting.
         8. Output JSON with 'subject' and 'body' keys. Use single line value for body instead of showing it multiline so that i can be converted to JSON format without errors.
         9. Generate a {decision_maker_profile.get('communication_style', '')} click bait subject line and as well as based on the template content.
 

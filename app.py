@@ -549,17 +549,16 @@ def get_potential_decision_makers(request: DecisionMakerRequest):
     search_engine_id = os.getenv('SEARCH_ENGINE_ID')
     domain_search_engine_id = os.getenv('DOMAIN_SEARCH_ENGINE_ID')
 
-    # query = f"{request.company_name} {request.industry}"
-    # print("QUERY: ", query)
-    # result = google_search(api_key, domain_search_engine_id, query, limit=1)
-    # domain_docs = [item.get('link') for item in result.get('items', [])]
+    query = f"{request.company_name} {request.industry}"
+    print("QUERY: ", query)
+    result = google_search(api_key, domain_search_engine_id, query, limit=3)
+    domain_docs = [item.get('link').split('//')[-1].split('/')[0].replace('www.', '') for item in result.get('items', [])]
 
-    # print("DOMAIN DOCS: ", domain_docs)
+    print("DOMAIN DOCS: ", domain_docs)
 
-    # # domain may be in the form of https://www.example.com or https://example.com
-    # domain1 = domain_docs[0].split('//')[-1].split('/')[0].replace('www.', '')
+    # domain may be in the form of https://www.example.com or https://example.com
     domain = request.domain_name
-    print(domain)
+    print(domain_docs)
 
     positions = ['CEO', 'Founder', 'VP', 'Sales Person']
     results = []
@@ -595,10 +594,12 @@ def get_potential_decision_makers(request: DecisionMakerRequest):
     prompt = f"""
                 Given the list of Scrapped Decision Makers of the company {comp_name} from LinkedIn, please analyse identify the top 3 decision makers who would be the responsible for business decisions. For each decision maker, include the name and title only.
 
+                List of Domain Docs of {comp_name} are {domain_docs}. {domain} is the current domain but verify it withe related doamin docs, if match leave as it is but if domain does not match provide the correct domain name using this docs. If irrelevant documents and present, analyse the web and provide the correct domain.
+
                 List of Scrapped Decision Makers of the company {comp_name} from LinkedIn: {scrapped_docs}
 
                 Output Format:
-                ( Provide only the dictionary as output of the company {comp_name} with decision maker name as key and decision maker position as value. )
+                ( Provide only the dictionary as output of the company {comp_name} with decision maker name as key and decision maker position as value. Alongwith an extra key of domain, with domain )
 
                 NOTE: STRICTLY, Do not add any other text, explanation or comments, by assuming except the JSON in the output.
 
@@ -632,7 +633,7 @@ def get_potential_decision_makers(request: DecisionMakerRequest):
 
     print("Decision makers found and formatted for ", comp_name,"and they are", api_response)
 
-    company = {'name': comp_name, 'decision_maker': None, 'decision_maker_mail': None, 'decision_maker_position': None, 'linkedin_url': None, 'domain': domain}
+    company = {'name': comp_name, 'decision_maker': None, 'decision_maker_mail': None, 'decision_maker_position': None, 'linkedin_url': None, 'domain': api_response['domain']}
 
     dm_names = []
     dm_positions = []
@@ -655,7 +656,7 @@ def get_potential_decision_makers(request: DecisionMakerRequest):
             elif len(key.split(' ')) == 1:
                 first_name = key
 
-            ref = find_valid_email(first_name, last_name, domain)
+            ref = find_valid_email(first_name, last_name, company['domain'])
             print(ref)
             valid_email, status = ref
             print("Valid email:", valid_email)
@@ -663,15 +664,23 @@ def get_potential_decision_makers(request: DecisionMakerRequest):
                 linkedin_url_query = f"{key} {value} of {request.company_name} site:linkedin.com"
                 linkedin_url = google_search(api_key, search_engine_id, linkedin_url_query, limit=1)
                 print("Linkedin URL: ", linkedin_url)
-                company['linkedin_url'] = linkedin_url['items'][0]['link']
+                if 'items' in linkedin_url.keys():                  
+                    company['linkedin_url'] = linkedin_url['items'][0]['link']
+                else:
+                    company['linkedin_url'] = f'https://linkedin.com/pub/dir/{first_name}/{last_name}'
                 company['decision_maker_mail'] = valid_email
                 company['status'] = status
                 break
             else:
                 linkedin_url = google_search(api_key, search_engine_id, f"{key} {value} of {request.company_name} site:linkedin.com", limit=1)
                 print("Linkedin URL: ", linkedin_url)
-                linkedin_urls.append(linkedin_url['items'][0]['link'])
-                company['linkedin_url'] = linkedin_urls
+                # find for a key in linkedin_url
+                if 'items' in linkedin_url.keys():
+                    linkedin_urls.append(linkedin_url['items'][0]['link'])
+                    company['linkedin_url'] = linkedin_urls
+                else:
+                    linkedin_urls.append('https://linkedin.com')
+                    company['linkedin_url'] = linkedin_urls
                 company['decision_maker_mail'] = None
                 dm_names.append(key)
                 company['decision_maker'] = dm_names

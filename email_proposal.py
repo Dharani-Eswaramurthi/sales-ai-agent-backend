@@ -167,14 +167,16 @@ class EmailProposalSystem:
         2. Personalize content using decision maker's profile
         3. Address company's specific pain points
         4. Use {decision_maker_profile.get('communication_style', 'professional')} tone
-        5. The template is not formatted correctly but it provides info on how to create the email. So, you need to format the email correctly e.g, add 2 <br/> for each section.
+        5. You need to format the email correctly e.g,
         6. Do not assume any additional information not provided in the context. Include a dummy placeholder if needed.
         7. Include relevant HTML formatting
-        8. Output JSON with 'subject' and 'body' keys. 
+        8. Output JSON with 'subject' and 'body' keys. Use single line value for body instead of showing it multiline so that i can be converted to JSON format without errors.
         9. Generate a {decision_maker_profile.get('communication_style', '')} click bait subject line and as well as based on the template content.
-        10. STRICTLY, Provide only the JSON response without any additional text or content.
 
-        NOTE: Keep in mind the max_tokens limit for the API call. So do not compromise on the quality of the email but avoid unnecessary spaces in the response.
+        
+        IMPORTANT NOTE: 
+        - Keep in mind the max_tokens limit for the API call. So do not compromise on the quality of the email but avoid unnecessary spaces in the response.
+        - STRICTLY, Do not add any other text, content or comments in the output except the JSON output
         """
         
 
@@ -190,7 +192,7 @@ class EmailProposalSystem:
             {"role": "user", "content": prompt}
         ]
 
-        response = chat_completion(messages, 700)
+        response = chat_completion(messages, 900)
         # parse the response to extract the subject and body
         try:
             return response, decision_maker_context

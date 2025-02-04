@@ -2,6 +2,7 @@ import os
 import re
 import logging
 import requests
+import concurrent.futures
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -23,21 +24,22 @@ def generate_email_combinations(first_name: str, last_name: str, domain: str) ->
     domain = domain.lower().strip()
     
     return [
-        f"{first}@{domain}",             # john@
-        # Highest probability formats (85% coverage)
         f"{first}.{last}@{domain}",      # john.doe@
-        # f"{first[0]}{last}@{domain}",    # jdoe@
+        f"{first[0]}{last}@{domain}",    # jdoe@
         f"{first}{last}@{domain}",       # johndoe@
+        f"{first}@{domain}",             # john@
+        f"{first}{last[0]}@{domain}",    # johnd@
+        # Highest probability formats (85% coverage)
+        f"{first[0]}.{last}@{domain}",   # j.doe@
+        f"{last}{first[0]}@{domain}",    # doej@
+        f"{first}.{last[0]}@{domain}",    # john.d@
         
         # Common professional formats
         f"{first}_{last}@{domain}",      # john_doe@
         f"{last}.{first}@{domain}",      # doe.john@
-        # f"{first[0]}.{last}@{domain}",   # j.doe@
         
         # Less common but valid formats
         f"{first}-{last}@{domain}",      # john-doe@
-        # f"{last}{first[0]}@{domain}",    # doej@
-        # f"{first}{last[0]}@{domain}",    # john.d@
     ]
 
 def get_mailtester_token(api_key: str) -> str:
@@ -65,6 +67,17 @@ def verify_email_api(email: str, token: str) -> bool:
         logger.error(f"Failed to verify {email} via API")
         return False
 
+def verify_email_candidate(email: str, token: str) -> str | None:
+    """Verify a single email candidate"""
+    if is_valid_email_format(email):
+        try:
+            if verify_email_api(email, token):
+                logger.info(f"First accepted email: {email}")
+                return email
+        except Exception as e:
+            logger.error(f"Verification failed for {email}: {str(e)}")
+    return None
+
 def find_valid_email(first_name: str, last_name: str, domain: str) -> str | None:
     """Find valid email based on first successful verification"""
     if not all([first_name, last_name, domain]):
@@ -83,12 +96,14 @@ def find_valid_email(first_name: str, last_name: str, domain: str) -> str | None
     if not token:
         return None
 
-    for email in candidates:
-        if is_valid_email_format(email):
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        future_to_email = {executor.submit(verify_email_candidate, email, token): email for email in candidates}
+        for future in concurrent.futures.as_completed(future_to_email):
+            email = future_to_email[future]
             try:
-                if verify_email_api(email, token):
-                    logger.info(f"First accepted email: {email}")
-                    return email
+                result = future.result()
+                if result:
+                    return result
             except Exception as e:
                 logger.error(f"Verification failed for {email}: {str(e)}")
 

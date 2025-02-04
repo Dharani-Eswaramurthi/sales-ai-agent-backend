@@ -370,7 +370,7 @@ def register_user(user: UserCreate, db: Session = Depends(get_db)):
                                 <!-- Logo Row (Placed Above the Container) -->
                                 <table role="presentation" width="360px" cellspacing="0" cellpadding="0" border="0">
                                     <tr>
-                                        <td align="center" style="padding-bottom: 15px;">
+                                        <td align="left" style="padding-bottom: 15px;">
                                             <img src="https://twingenfuelfiles.blob.core.windows.net/lead-stream/heuro.png" alt="Heuro Logo" width="80">
                                         </td>
                                     </tr>
@@ -466,6 +466,7 @@ def get_user(user_id: str, db: Session = Depends(get_db)):
     try:
         # extract First Name, Last Name, email, company name, position
         user = db.query(User).filter(User.id == user_id).first()
+        print(user)
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
         
@@ -502,7 +503,7 @@ def get_potential_companies(request: ProductRequest):
 
                 ### Instructions:
                 - **Data Accuracy**: Ensure all company details, especially domain names, are accurate and verified through reliable sources. Avoid assumptions or unverifiable information.
-                - **Web Browsing**: Utilize official company websites, reputable business directories, and recent news articles to gather current and precise information.
+                - **Web Browsing**: Utilize official company websites, reputable business directories, and recent news articles to gather current and precise information. Provide companies that has a valid domain.
                 - **Exclusions**: Strictly exclude companies listed under 'Existing Customers'.
 
                 ### Output Format:
@@ -548,7 +549,7 @@ def get_potential_decision_makers(request: DecisionMakerRequest):
     search_engine_id = os.getenv('SEARCH_ENGINE_ID')
     domain_search_engine_id = os.getenv('DOMAIN_SEARCH_ENGINE_ID')
 
-    query = f"{request.domain_name}"
+    query = f"{request.company_name} {request.industry}"
     print("QUERY: ", query)
     result = google_search(api_key, domain_search_engine_id, query, limit=1)
     domain_docs = [item.get('link') for item in result.get('items', [])]
@@ -596,7 +597,7 @@ def get_potential_decision_makers(request: DecisionMakerRequest):
                 List of Scrapped Decision Makers of the company {comp_name} from LinkedIn: {scrapped_docs}
 
                 Output Format:
-                ( Provide only the dictionary as output of the company {comp_name} with decision maker name as key and decision maker position as value. Add another item in the dictionary in format decision make name + " linkedin" as key and the profile link as the value. )
+                ( Provide only the dictionary as output of the company {comp_name} with decision maker name as key and decision maker position as value. )
 
                 NOTE: STRICTLY, Do not add any other text, explanation or comments, by assuming except the JSON in the output.
 
@@ -632,30 +633,46 @@ def get_potential_decision_makers(request: DecisionMakerRequest):
 
     company = {'name': comp_name, 'decision_maker': None, 'decision_maker_mail': None, 'decision_maker_position': None, 'linkedin_url': None, 'domain': domain}
 
+    dm_names = []
+    dm_positions = []
+    linkedin_urls = []
+
     for key, value in api_response.items():
-        company['decision_maker'] = key
-        company['decision_maker_position'] = value
+            
+        if key.strip(' ')[2] != 'linkedin':
+            company['decision_maker'] = key
+            company['decision_maker_position'] = value
 
-        first_name = None
-        last_name = None
-        middle_name = None
+            first_name = None
+            last_name = None
+            middle_name = None
 
-        if len(key.split(' ')) == 2:
-            first_name, last_name = key.split(' ')
-        elif len(key.split(' ')) == 3:
-            first_name, middle_name, last_name = key.split(' ')
-        elif len(key.split(' ')) == 1:
-            first_name = key
+            if len(key.split(' ')) == 2:
+                first_name, last_name = key.split(' ')
+            elif len(key.split(' ')) == 3:
+                first_name, middle_name, last_name = key.split(' ')
+            elif len(key.split(' ')) == 1:
+                first_name = key
 
-        valid_email = find_valid_email(first_name, last_name, domain)
-        if valid_email:
-            company['decision_maker_mail'] = valid_email
-            company['linkedin_url'] = api_response[company['decision_maker']+' linkedin']
-            break
-        else:
-            if i == len(api_response)-1:
-                raise HTTPException(status_code=404, detail="No valid email found for the decision maker")
-            continue
+            valid_email = find_valid_email(first_name, last_name, domain)
+            if valid_email:
+                linkedin_url_query = f"{key} {value} of {request.company_name} site:linkedin.com"
+                linkedin_url = google_search(api_key, search_engine_id, linkedin_url_query, limit=1)
+                print("Linkedin URL: ", linkedin_url)
+                company['linkedin_url'] = linkedin_url['items'][0]['link']
+                company['decision_maker_mail'] = valid_email
+                break
+            else:
+                linkedin_url = google_search(api_key, search_engine_id, f"{key} {value} of {request.company_name} site:linkedin.com", limit=1)
+                print("Linkedin URL: ", linkedin_url)
+                linkedin_urls.append(linkedin_url['items'][0]['link'])
+                company['linkedin_url'] = linkedin_urls
+                company['decision_maker_mail'] = None
+                dm_names.append(key)
+                company['decision_maker'] = dm_names
+                dm_positions.append(value)
+                company['decision_maker_position'] = dm_positions
+                print("Appended")
             
     return company
 
@@ -724,35 +741,44 @@ def get_email_proposal(request: EmailProposalRequest):
         return response
 
 def format_response(response):
-    # Parse and clean JSON output
+    # Get the raw content from the API response.
     json_string = response["choices"][0]["message"]["content"].strip()
-    cleaned_json_string = re.sub(r'```(json|)', '', json_string).strip()
+    
+    # First, try to extract JSON content between ```json and ```
+    match = re.search(r'```json\s*(.*?)\s*```', json_string, re.DOTALL)
+    if match:
+        candidate = match.group(1).strip()
+    else:
+        # If no code block markers, use the full response
+        candidate = json_string
+
+    # Remove single-line comments (// ...) from the candidate.
+    # This uses MULTILINE mode so that any line that starts with // (or has them after some whitespace) is removed.
+    candidate = re.sub(r'(?m)^\s*//.*$', '', candidate)
+    # Also remove inline comments that start with // and continue until the end of the line.
+    candidate = re.sub(r'(?m)([^:])//.*$', r'\1', candidate)
+
+    # Optionally, remove trailing commas (if any) before closing brackets/braces.
+    candidate = re.sub(r',\s*([}\]])', r'\1', candidate)
+
     try:
-        # Ensure the JSON string is properly formatted
-        print("Cleaned JSON String: ", cleaned_json_string)
-        if not (cleaned_json_string.startswith('{') and cleaned_json_string.endswith('}')) and \
-           not (cleaned_json_string.startswith('[') and cleaned_json_string.endswith(']')):
-            raise ValueError("Invalid JSON format")
-        return json.loads(cleaned_json_string)
-    except (json.JSONDecodeError, ValueError) as e:
-        print("JSON String error:",json_string)
+        # First attempt: try to parse the candidate as JSON.
+        return json.loads(candidate)
+    except json.JSONDecodeError as e:
         print(f"Error parsing JSON response: {e}")
-        # Attempt to fix common formatting issues
-        cleaned_json_string = re.sub(r'(?<!\\)\n', '\\n', cleaned_json_string)
-        cleaned_json_string = re.sub(r'[\x00-\x1f\x7f-\x9f]', '', cleaned_json_string)  # Remove control characters
-        try:
-            # Handle unterminated string literals
-            if cleaned_json_string.count('"') % 2 != 0:
-                cleaned_json_string += '"'
-            # Ensure proper JSON formatting
-            cleaned_json_string = re.sub(r'(?<!\\)"\s*:\s*(?<!\\)"', '": "', cleaned_json_string)
-            cleaned_json_string = re.sub(r'(?<!\\)"\s*,\s*(?<!\\)"', '", "', cleaned_json_string)
-            return ast.literal_eval(cleaned_json_string)
-        except (SyntaxError, ValueError) as e:
-            print(f"Error evaluating JSON response: {e}")
-            # Log the problematic response for debugging
-            print(f"Problematic response: {json_string}")
-            raise HTTPException(status_code=500, detail="Invalid response format from API")
+        # If the error message indicates control characters, try escaping them
+        if "Invalid control character" in str(e):
+            fixed_candidate = re.sub(r'(?<!\\)(\n)', r'\\n', candidate)
+            try:
+                return json.loads(fixed_candidate)
+            except (json.JSONDecodeError, ValueError) as e2:
+                print(f"Error parsing JSON after fixing control characters: {e2}")
+        else:
+            # You can add further fixes here if needed.
+            pass
+
+        print("Problematic response:", candidate)
+        raise HTTPException(status_code=500, detail="Invalid response format from API")
 
 
 @app.post("/send_email")
@@ -827,21 +853,12 @@ async def send_email(email: EmailData, user_id: str, user_email: str, encrypted_
         <tr>
             <td align="center">
 
-                <!-- Logo Row -->
-                <table role="presentation" width="600px" cellspacing="0" cellpadding="0" border="0">
-                    <tr>
-                        <td align="center" style="padding-bottom: 15px;">
-                            <img src="https://twingenfuelfiles.blob.core.windows.net/lead-stream/heuro.png" alt="Heuro Logo" width="80">
-                        </td>
-                    </tr>
-                </table>
-
                 <!-- Email Container -->
                 <table role="presentation" width="600px" cellspacing="0" cellpadding="0" border="0" style="background-color: #ffffff; border-radius: 8px; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15); padding: 20px; text-align: center;">
                     
                     <!-- Email Body Content -->
                     <tr>
-                        <td style="font-size: 16px; color: #333; line-height: 1.6; padding-bottom: 20px;">
+                        <td style="font-size: 16px; color: #333; line-height: 1.6; padding-bottom: 20px; text-align: left;">
                             {body}
                         </td>
                     </tr>
@@ -911,7 +928,7 @@ async def send_email(email: EmailData, user_id: str, user_email: str, encrypted_
                 <!-- Logo -->
                 <table role="presentation" width="600px" cellspacing="0" cellpadding="0" border="0">
                     <tr>
-                        <td align="center" style="padding-bottom: 20px;">
+                        <td align="left" style="padding-bottom: 20px;">
                             <img src="https://twingenfuelfiles.blob.core.windows.net/lead-stream/heuro.png" alt="Heuro Logo" width="75">
                         </td>
                     </tr>
@@ -971,9 +988,14 @@ async def track(tracking_id: str):
     # Update the email status to "Not Responded" in the database
     db = SessionLocal()
     email_entry = db.query(EmailStatus).filter(EmailStatus.id == tracking_id).first()
+    followup_entry = db.query(FollowupStatus).filter(FollowupStatus.email_id == tracking_id).first()
 
     if email_entry:
         email_entry.status = "Opened but Not Responded"
+        db.commit()
+        db.close()
+    if followup_entry:
+        followup_entry.status = "Opened but Not Responded"
         db.commit()
         db.close()
         
@@ -995,7 +1017,7 @@ async def track(tracking_id: str):
                 <!-- Logo -->
                 <table role="presentation" width="600px" cellspacing="0" cellpadding="0" border="0">
                     <tr>
-                        <td align="center" style="padding-bottom: 20px;">
+                        <td align="left" style="padding-bottom: 20px;">
                             <img src="https://twingenfuelfiles.blob.core.windows.net/lead-stream/heuro.png" alt="Heuro Logo" width="75">
                         </td>
                     </tr>
@@ -1009,7 +1031,7 @@ async def track(tracking_id: str):
                         <td style="font-size: 16px; color: #333; padding: 10px 20px; line-height: 1.6;">
                             <p>Hi {email_entry.sender_name},</p>
                             <p><strong>Lead Stream has a new notification for you!</strong></p>
-                            <p>{email_entry.dm_name} has opened your mail but has not yet responded.</p>
+                            <p>{email_entry.dm_name} <b>has opened your {'followup' if followup_entry else 'email'}</b> but has not yet responded.</p>
                             <p>Here is the email that was sent to <strong>{email_entry.email_id}</strong>:</p>
                             <p><strong>Subject:</strong> {email_entry.email_subject}</p>
                             <p><strong>Body:</strong> {email_entry.email_body}</p>
@@ -1039,6 +1061,7 @@ async def track_response(tracking_id: str, response: str):
     # Update the email status to "Opened" in the database
     db = SessionLocal()
     email_entry = db.query(EmailStatus).filter(EmailStatus.id == tracking_id).first()
+    followup_entry = db.query(FollowupStatus).filter(FollowupStatus.email_id == tracking_id).first()
 
     if email_entry and response == "interested":
         email_entry.status = "Interested"
@@ -1046,13 +1069,238 @@ async def track_response(tracking_id: str, response: str):
         db.close()
         print(f"Email with Tracking ID: {tracking_id} has been opened and interested")
         #return a html page with a thank you message
+        html_body = f"""
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Lead Stream Notification</title>
+</head>
+<body style="background-color: rgb(89,227,167); font-family: Arial, sans-serif; padding: 20px; margin: 0; text-align: center;">
+
+    <!-- Outer Table to Center Content -->
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+        <tr>
+            <td align="center">
+
+                <!-- Logo -->
+                <table role="presentation" width="600px" cellspacing="0" cellpadding="0" border="0">
+                    <tr>
+                        <td align="left" style="padding-bottom: 20px;">
+                            <img src="https://twingenfuelfiles.blob.core.windows.net/lead-stream/heuro.png" alt="Heuro Logo" width="75">
+                        </td>
+                    </tr>
+                </table>
+
+                <!-- Email Content -->
+                <table role="presentation" width="600px" cellspacing="0" cellpadding="0" border="0" 
+                    style="background: #ffffff; border-radius: 8px; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15); padding: 20px; text-align: left;">
+                    
+                    <tr>
+                        <td style="font-size: 16px; color: #333; padding: 10px 20px; line-height: 1.6;">
+                            <p>Hi {email_entry.sender_name},</p>
+                            <p><strong>Lead Stream has a new notification for you!</strong></p>
+                            <p>{email_entry.dm_name} has opened and <b>is showing interest</b> to your product <b>via mail</b></p>
+                            <p>Here is the email that was sent to <strong>{email_entry.email_id}</strong>:</p>
+                            <p><strong>Subject:</strong> {email_entry.email_subject}</p>
+                            <p><strong>Body:</strong> {email_entry.email_body}</p>
+                            <p>Please check the email and take the necessary action.</p>
+                            <p>Thank you for using Lead Stream!</p>
+                        </td>
+                    </tr>
+
+                </table>
+
+            </td>
+        </tr>
+    </table>
+
+</body>
+</html>
+"""
+
+        send_notification_email(email_entry.sender_email, "Hurray! You have a new lead", html_body)
+
+        print(f"Email with Tracking ID: {tracking_id} has been opened and interested.")
         return FileResponse("interested.html")
     
-    elif email_entry and response == "not-interested":
+    if email_entry and response == "not-interested":
         email_entry.status = "Not Interested"
         db.commit()
         db.close()
         print(f"Email with Tracking ID: {tracking_id} has been opened but not interested")
+        html_body = f"""
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Lead Stream Notification</title>
+</head>
+<body style="background-color: rgb(89,227,167); font-family: Arial, sans-serif; padding: 20px; margin: 0; text-align: center;">
+
+    <!-- Outer Table to Center Content -->
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+        <tr>
+            <td align="center">
+
+                <!-- Logo -->
+                <table role="presentation" width="600px" cellspacing="0" cellpadding="0" border="0">
+                    <tr>
+                        <td align="left" style="padding-bottom: 20px;">
+                            <img src="https://twingenfuelfiles.blob.core.windows.net/lead-stream/heuro.png" alt="Heuro Logo" width="75">
+                        </td>
+                    </tr>
+                </table>
+
+                <!-- Email Content -->
+                <table role="presentation" width="600px" cellspacing="0" cellpadding="0" border="0" 
+                    style="background: #ffffff; border-radius: 8px; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15); padding: 20px; text-align: left;">
+                    
+                    <tr>
+                        <td style="font-size: 16px; color: #333; padding: 10px 20px; line-height: 1.6;">
+                            <p>Hi {email_entry.sender_name},</p>
+                            <p><strong>Lead Stream has a new notification for you!</strong></p>
+                            <p>Unfortunately, {email_entry.dm_name} has opened and <b>is not interested</b> to your product at this time <b>via mail</b></p>
+                            <p>Here is the email that was sent to <strong>{email_entry.email_id}</strong>:</p>
+                            <p><strong>Subject:</strong> {email_entry.email_subject}</p>
+                            <p><strong>Body:</strong> {email_entry.email_body}</p>
+                            <p>Thank you for using Lead Stream!</p>
+                        </td>
+                    </tr>
+
+                </table>
+
+            </td>
+        </tr>
+    </table>
+
+</body>
+</html>
+"""
+
+        send_notification_email(email_entry.sender_email, "New Notification from Lead Stream!", html_body)
+
+        print(f"Email with Tracking ID: {tracking_id} has been opened and interested.")
+        return FileResponse("not-interested.html")
+    
+    if followup_entry and response == "interested":
+        followup_entry.status = "Interested"
+        db.commit()
+        db.close()
+        print(f"Followup with Tracking ID: {tracking_id} has been opened and interested")
+        html_body = f"""
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Lead Stream Notification</title>
+</head>
+<body style="background-color: rgb(89,227,167); font-family: Arial, sans-serif; padding: 20px; margin: 0; text-align: center;">
+
+    <!-- Outer Table to Center Content -->
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+        <tr>
+            <td align="center">
+
+                <!-- Logo -->
+                <table role="presentation" width="600px" cellspacing="0" cellpadding="0" border="0">
+                    <tr>
+                        <td align="left" style="padding-bottom: 20px;">
+                            <img src="https://twingenfuelfiles.blob.core.windows.net/lead-stream/heuro.png" alt="Heuro Logo" width="75">
+                        </td>
+                    </tr>
+                </table>
+
+                <!-- Email Content -->
+                <table role="presentation" width="600px" cellspacing="0" cellpadding="0" border="0" 
+                    style="background: #ffffff; border-radius: 8px; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15); padding: 20px; text-align: left;">
+                    
+                    <tr>
+                        <td style="font-size: 16px; color: #333; padding: 10px 20px; line-height: 1.6;">
+                            <p>Hi {email_entry.sender_name},</p>
+                            <p><strong>Lead Stream has a new notification for you!</strong></p>
+                            <p>{email_entry.dm_name} has opened and <b>is showing interest</b> to your product <b>via followup</b></p>
+                            <p>Here is the email that was sent to <strong>{email_entry.email_id}</strong>:</p>
+                            <p><strong>Subject:</strong> {email_entry.email_subject}</p>
+                            <p><strong>Body:</strong> {email_entry.email_body}</p>
+                            <p>Please check the email and take the necessary action.</p>
+                            <p>Thank you for using Lead Stream!</p>
+                        </td>
+                    </tr>
+
+                </table>
+
+            </td>
+        </tr>
+    </table>
+
+</body>
+</html>
+"""
+
+        send_notification_email(email_entry.sender_email, "Hurray! You have a new Lead", html_body)
+
+        print(f"Email with Tracking ID: {tracking_id} has been opened and interested.")
+        return FileResponse("interested.html")
+    
+    if followup_entry and response == 'not-interested':
+        followup_entry.status = "Not Interested"
+        db.commit()
+        db.close()
+        print(f"Followup with Tracking ID: {tracking_id} has been opened and not interested")
+        html_body = f"""
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Lead Stream Notification</title>
+</head>
+<body style="background-color: rgb(89,227,167); font-family: Arial, sans-serif; padding: 20px; margin: 0; text-align: center;">
+
+    <!-- Outer Table to Center Content -->
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+        <tr>
+            <td align="center">
+
+                <!-- Logo -->
+                <table role="presentation" width="600px" cellspacing="0" cellpadding="0" border="0">
+                    <tr>
+                        <td align="left" style="padding-bottom: 20px;">
+                            <img src="https://twingenfuelfiles.blob.core.windows.net/lead-stream/heuro.png" alt="Heuro Logo" width="75">
+                        </td>
+                    </tr>
+                </table>
+
+                <!-- Email Content -->
+                <table role="presentation" width="600px" cellspacing="0" cellpadding="0" border="0" 
+                    style="background: #ffffff; border-radius: 8px; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15); padding: 20px; text-align: left;">
+                    
+                    <tr>
+                        <td style="font-size: 16px; color: #333; padding: 10px 20px; line-height: 1.6;">
+                            <p>Hi {email_entry.sender_name},</p>
+                            <p><strong>Lead Stream has a new notification for you!</strong></p>
+                            <p>Unfortunately, {email_entry.dm_name} has opened and <b>is not interested</b> to your product at this time <b>via followup</b></p>
+                            <p>Here is the email that was sent to <strong>{email_entry.email_id}</strong>:</p>
+                            <p><strong>Subject:</strong> {email_entry.email_subject}</p>
+                            <p><strong>Body:</strong> {email_entry.email_body}</p>
+                            <p>Please check the email and take the necessary action.</p>
+                            <p>Thank you for using Lead Stream!</p>
+                        </td>
+                    </tr>
+
+                </table>
+
+            </td>
+        </tr>
+    </table>
+
+</body>
+</html>
+"""
+
+        send_notification_email(email_entry.sender_email, "New Notification from Lead Stream!", html_body)
+
+        print(f"Followup with Tracking ID: {tracking_id} has been opened and interested.")
         return FileResponse("not-interested.html")
 
     else:
@@ -1124,7 +1372,7 @@ def get_email_reminder(tracking_id: str, user_id: str, request: ReminderRequest,
                 <!-- Logo -->
                 <table role="presentation" width="600px" cellspacing="0" cellpadding="0" border="0">
                     <tr>
-                        <td align="center" style="padding-bottom: 20px;">
+                        <td align="left" style="padding-bottom: 20px;">
                             <img src="https://twingenfuelfiles.blob.core.windows.net/lead-stream/heuro.png" alt="Heuro Logo" width="75">
                         </td>
                     </tr>
@@ -1179,7 +1427,7 @@ async def send_followup_email(user_id: str, user_email: str, encrypted_password:
         if not followup_data:
             # insert a followup mail
             new_followup = FollowupStatus(
-                followup_id='followup_' + generate_unique_uuid(db, FollowupStatus, FollowupStatus.followup_id),
+                followup_id=followup_data.followup_id,
                 user_id=user_id,  # Set the user_id
                 email_uid=followup.email_uid,
                 followup_date=datetime.utcnow(),
@@ -1217,7 +1465,61 @@ async def send_followup_email(user_id: str, user_email: str, encrypted_password:
         msg['From'] = user_email
         msg['To'] = followup.recipient
         msg['Subject'] = followup.subject
-        msg.attach(MIMEText(followup.body, 'html'))
+        html_body = f"""
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Followup Notification</title>
+</head>
+<body style="background-color: rgb(89,227,167); font-family: Arial, sans-serif; margin: 0; padding: 20px; text-align: center;">
+
+    <!-- Outer Table (Centers Content) -->
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+        <tr>
+            <td align="center">
+
+                <!-- Email Container -->
+                <table role="presentation" width="600px" cellspacing="0" cellpadding="0" border="0" style="background-color: #ffffff; border-radius: 8px; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15); padding: 20px; text-align: center;">
+                    
+                    <!-- Email Body Content -->
+                    <tr>
+                        <td style="font-size: 16px; color: #333; line-height: 1.6; padding-bottom: 20px; text-align: left;">
+                            {followup.body}
+                        </td>
+                    </tr>
+
+                    <!-- Tracking Pixel (Hidden) -->
+                    <tr>
+                        <td>
+                            <img src="https://sales-ai-agent-backend-e3h0gzfxduabejdz.centralindia-01.azurewebsites.net/track/{followup_data.followup_id}" width="3" height="3" alt="tracking pixel" style="display: none;">
+                        </td>
+                    </tr>
+
+                    <!-- Action Buttons -->
+                    <tr>
+                        <td style="padding-top: 20px;">
+                            <a href="https://sales-ai-agent-backend-e3h0gzfxduabejdz.centralindia-01.azurewebsites.net/track-response/{followup_data.followup_id}/interested"
+                                style="display: inline-block; background: rgb(89,227,167); color: #ffffff; text-decoration: none; padding: 12px 24px; border-radius: 5px; font-size: 16px; margin-right: 10px;">
+                                Interested
+                            </a>
+                            <a href="https://sales-ai-agent-backend-e3h0gzfxduabejdz.centralindia-01.azurewebsites.net/track-response/{followup_data.followup_id}/not-interested"
+                                style="display: inline-block; background: #e74c3c; color: #ffffff; text-decoration: none; padding: 12px 24px; border-radius: 5px; font-size: 16px;">
+                                Not Interested
+                            </a>
+                        </td>
+                    </tr>
+
+                </table>
+
+            </td>
+        </tr>
+    </table>
+
+</body>
+</html>
+"""
+        msg.attach(MIMEText(html_body, 'html'))
 
         try:
             with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
@@ -1245,7 +1547,7 @@ async def send_followup_email(user_id: str, user_email: str, encrypted_password:
                 <!-- Logo -->
                 <table role="presentation" width="600px" cellspacing="0" cellpadding="0" border="0">
                     <tr>
-                        <td align="center" style="padding-bottom: 20px;">
+                        <td align="left" style="padding-bottom: 20px;">
                             <img src="https://twingenfuelfiles.blob.core.windows.net/lead-stream/heuro.png" alt="Heuro Logo" width="75">
                         </td>
                     </tr>
@@ -1418,6 +1720,7 @@ def add_product(user_id: str, request: ProductRequest, db: Session = Depends(get
     try:
         new_product = ProductDetails(
             user_id=user_id,  # Set the user_id
+            product_id='product_'+ generate_unique_uuid(db, ProductDetails, ProductDetails.product_id),
             product_name=request.product_name,
             existing_customers=request.existing_customers,
             product_description=request.product_description,
@@ -1428,8 +1731,8 @@ def add_product(user_id: str, request: ProductRequest, db: Session = Depends(get
             target_business_model=request.target_business_model,
             addressing_pain_points=request.addressing_pain_points
         )
-        user.product_limit -= 1
         db.add(new_product)
+        user.product_limit -= 1
         db.commit()
         return {"message": "Product added successfully", "product_id": new_product.product_id}
     except Exception as e:
@@ -1627,9 +1930,9 @@ def add_generated_companies(request: GeneratedCompanyRequest, user_id: str, db: 
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     
-    product = db.query(ProductDetails).filter(ProductDetails.product_id == request.product_id, ProductDetails.user_id == user_id).first()
-    if not product:
-        raise HTTPException(status_code=404, detail="Product not found or you do not have permission to add companies for this product")
+    # product = db.query(ProductDetails).filter(ProductDetails.product_id == request.product_id, ProductDetails.user_id == user_id).first()
+    # if not product:
+    #     raise HTTPException(status_code=404, detail="Product not found or you do not have permission to add companies for this product")
 
     # update the company_limit in users table
     if user.company_limit < len(request.companies):

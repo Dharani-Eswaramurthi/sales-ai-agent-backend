@@ -549,15 +549,16 @@ def get_potential_decision_makers(request: DecisionMakerRequest):
     search_engine_id = os.getenv('SEARCH_ENGINE_ID')
     domain_search_engine_id = os.getenv('DOMAIN_SEARCH_ENGINE_ID')
 
-    query = f"{request.company_name} {request.industry}"
-    print("QUERY: ", query)
-    result = google_search(api_key, domain_search_engine_id, query, limit=1)
-    domain_docs = [item.get('link') for item in result.get('items', [])]
+    # query = f"{request.company_name} {request.industry}"
+    # print("QUERY: ", query)
+    # result = google_search(api_key, domain_search_engine_id, query, limit=1)
+    # domain_docs = [item.get('link') for item in result.get('items', [])]
 
-    print("DOMAIN DOCS: ", domain_docs)
+    # print("DOMAIN DOCS: ", domain_docs)
 
-    # domain may be in the form of https://www.example.com or https://example.com
-    domain = domain_docs[0].split('//')[-1].split('/')[0].replace('www.', '')
+    # # domain may be in the form of https://www.example.com or https://example.com
+    # domain1 = domain_docs[0].split('//')[-1].split('/')[0].replace('www.', '')
+    domain = request.domain_name
     print(domain)
 
     positions = ['CEO', 'Founder', 'VP', 'Sales Person']
@@ -654,13 +655,17 @@ def get_potential_decision_makers(request: DecisionMakerRequest):
             elif len(key.split(' ')) == 1:
                 first_name = key
 
-            valid_email = find_valid_email(first_name, last_name, domain)
+            ref = find_valid_email(first_name, last_name, domain)
+            print(ref)
+            valid_email, status = ref
+            print("Valid email:", valid_email)
             if valid_email:
                 linkedin_url_query = f"{key} {value} of {request.company_name} site:linkedin.com"
                 linkedin_url = google_search(api_key, search_engine_id, linkedin_url_query, limit=1)
                 print("Linkedin URL: ", linkedin_url)
                 company['linkedin_url'] = linkedin_url['items'][0]['link']
                 company['decision_maker_mail'] = valid_email
+                company['status'] = status
                 break
             else:
                 linkedin_url = google_search(api_key, search_engine_id, f"{key} {value} of {request.company_name} site:linkedin.com", limit=1)
@@ -672,6 +677,7 @@ def get_potential_decision_makers(request: DecisionMakerRequest):
                 company['decision_maker'] = dm_names
                 dm_positions.append(value)
                 company['decision_maker_position'] = dm_positions
+                company['status'] = status
                 print("Appended")
             
     return company

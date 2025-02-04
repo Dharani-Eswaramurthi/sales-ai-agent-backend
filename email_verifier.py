@@ -62,53 +62,58 @@ def verify_email_api(email: str, token: str) -> bool:
     if response.status_code == 200:
         data = response.json()
         logger.info(f"API response for {email}: {data}")
-        return data.get("code") == "ok"
+        if data.get("code") == "ok" or data.get("message") == "Catch-All":
+            return True, data.get("message")
+        else:
+            logger.error(f"Failed to verify {email} via API")
+            return False, data.get("message")
     else:
         logger.error(f"Failed to verify {email} via API")
-        return False
+        return False, data.get("message")
 
 def verify_email_candidate(email: str, token: str) -> str | None:
     """Verify a single email candidate"""
     if is_valid_email_format(email):
         try:
-            if verify_email_api(email, token):
+            emailRef, status = verify_email_api(email, token)
+            if emailRef:
                 logger.info(f"First accepted email: {email}")
-                return email
+                return email, status
         except Exception as e:
             logger.error(f"Verification failed for {email}: {str(e)}")
-    return None
+    return None, status
 
 def find_valid_email(first_name: str, last_name: str, domain: str) -> str | None:
     """Find valid email based on first successful verification"""
     if not all([first_name, last_name, domain]):
         logger.error("Missing required input parameters")
-        return None
+        return None, None
 
     if not is_valid_email_format(f"test@{domain}"):
         logger.error(f"Invalid domain format: {domain}")
-        return None
+        return None, None
 
     candidates = generate_email_combinations(first_name, last_name, domain)
     if not MAILTESTER_API_KEY:
         logger.info("MAILTESTER_API_KEY not set")
-        return None
+        return None, None
     token = get_mailtester_token(MAILTESTER_API_KEY)
     if not token:
-        return None
+        return None, None
 
     with concurrent.futures.ThreadPoolExecutor() as executor:
         future_to_email = {executor.submit(verify_email_candidate, email, token): email for email in candidates}
         for future in concurrent.futures.as_completed(future_to_email):
             email = future_to_email[future]
             try:
-                result = future.result()
+                result, status = future.result()
                 if result:
-                    return result
+                    return result, status
             except Exception as e:
                 logger.error(f"Verification failed for {email}: {str(e)}")
 
     logger.info("No deliverable email found")
-    return None
+    return None, None
 
 # if __name__ == "__main__":
 #     # Example usage with input validation

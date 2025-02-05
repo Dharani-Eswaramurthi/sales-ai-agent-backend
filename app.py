@@ -164,6 +164,8 @@ class GeneratedCompany(Base):
     domain = Column(String, nullable=True)
     status = Column(String, default="Not Contacted")
     personality_type = Column(String, nullable=True)
+    subject = Column(String, nullable=True)
+    body = Column(String, nullable=True)
     linkedin_url = Column(String, nullable=True)
     decision_maker_name = Column(String, nullable=True)  # New field
     decision_maker_email = Column(String, nullable=True)  # New field
@@ -296,6 +298,8 @@ class GeneratedCompanyUpdateRequest(BaseModel):
     personality_type: Optional[str] = None  # New field
     linkedin_url: Optional[str] = None  # New field
     decision_maker_email: Optional[str] = None  # New field
+    subject: Optional[str] = None  # New field
+    body: Optional[str] = None  # New field
     decision_maker_position: Optional[str] = None  # New field
     failed_company: Optional[bool] = False  # New field
     domain_name: Optional[str] = None
@@ -564,7 +568,7 @@ def get_potential_decision_makers(request: DecisionMakerRequest):
     results = []
     for i in positions:
         query = f"Current {i} at {domain} site:linkedin.com"
-        result = google_search(api_key, search_engine_id, query, limit=5)  # Set limit to 5
+        result = google_search(api_key, search_engine_id, query, limit=3)  # Set limit to 5
         # Process results
         ref_res = []
         for item in result.get('items', []):
@@ -592,29 +596,42 @@ def get_potential_decision_makers(request: DecisionMakerRequest):
     print("Decision makers details fetched for ", comp_name)
 
     prompt = f"""
-                Given the list of Scrapped Decision Makers of the company {comp_name} from LinkedIn, please analyse identify the top 3 decision makers who would be the responsible for business decisions. For each decision maker, include the name and title only.
+                Given:  
+                - Company: {comp_name}  
+                - Initial Domain Claim: {domain}  
+                - Domain Validation Documents: {domain_docs}  
+                - LinkedIn Profiles: {scrapped_docs}  
 
-                List of Domain Docs of {comp_name} are {domain_docs}. {domain} is the current domain but verify it withe related doamin docs, if match leave as it is but if domain does not match provide the correct domain name using this docs. If irrelevant documents and present, analyse the web and provide the correct domain.
+                Execute:  
+                1. **Identify Decision Makers**  
+                - Select 3 profiles with highest business decision authority using hierarchy:  
+                    CEO/CFO/COO > President/VP > Director > Department Head  
+                - Exclude technical/operational roles (e.g., IT Manager, HR Lead)  
 
-                List of Scrapped Decision Makers of the company {comp_name} from LinkedIn: {scrapped_docs}
+                2. **Validate/Correct Domain**  
+                - Compare {domain} with keywords in {domain_docs}  
+                - If mismatch: Extract dominant industry from documents  
+                - If unclear: Retain original {domain}  
 
-                Output Format:
-                ( Provide only the dictionary as output of the company {comp_name} with decision maker name as key and decision maker position as value. Alongwith an extra key of domain, with domain )
+                3. **Output Fields**
+                - Get the Name and Role of the identified person
+                - Replace them in the output json
 
-                NOTE: STRICTLY, Do not add any other text, explanation or comments, by assuming except the JSON in the output.
+                Output **ONLY** this JSON ( Replace with person's name and title in the respective field ):  
+                ( Provide person name as the key and role as the value in the JSON, also add a key called domain with value as the validated domain or original domain. )
+                ( Do not include any additional text or content in the output ) 
 
                 """
     
     # Prepare the Perplexity API request payload
     payload = {
-        "model": "llama-3.1-sonar-large-128k-online",
+        "model": "sonar-reasoning-pro",
         "messages": [
             {
                 "role": "user",
                 "content": prompt
             }
         ],
-        "max_tokens": 200
     }
 
     try:
@@ -641,7 +658,7 @@ def get_potential_decision_makers(request: DecisionMakerRequest):
 
     for key, value in api_response.items():
             
-        if key.strip(' ')[2] != 'linkedin':
+        if key.strip(' ')[2] != 'linkedin' and key.strip() != 'domain':
             company['decision_maker'] = key
             company['decision_maker_position'] = value
 
@@ -1003,85 +1020,87 @@ async def track(tracking_id: str):
     # Update the email status to "Not Responded" in the database
     db = SessionLocal()
     email_entry = db.query(EmailStatus).filter(EmailStatus.id == tracking_id).first()
-    followup_entry = db.query(FollowupStatus).filter(FollowupStatus.email_id == tracking_id).first()
+    followup_entry = db.query(FollowupStatus).filter(FollowupStatus.followup_id == tracking_id).first()
 
     if email_entry:
         email_entry.status = "Opened but Not Responded"
         db.commit()
-        db.close()
+    
     if followup_entry:
         followup_entry.status = "Opened but Not Responded"
         db.commit()
-        db.close()
+
+    if not(email_entry or followup_entry):
+        raise HTTPException(status_code=404, detail="Tracking ID not found")
+
         
-        # Send notification email to the sender
-        html_body = f"""
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <title>Lead Stream Notification</title>
-</head>
-<body style="background-color: rgb(89,227,167); font-family: Arial, sans-serif; padding: 20px; margin: 0; text-align: center;">
+    # Send notification email to the sender
+    html_body = f"""
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+        <meta charset="UTF-8">
+        <title>Lead Stream Notification</title>
+        </head>
+        <body style="background-color: rgb(89,227,167); font-family: Arial, sans-serif; padding: 20px; margin: 0; text-align: center;">
 
-    <!-- Outer Table to Center Content -->
-    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
-        <tr>
-            <td align="center">
+        <!-- Outer Table to Center Content -->
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+            <tr>
+                <td align="center">
 
-                <!-- Logo -->
-                <table role="presentation" width="600px" cellspacing="0" cellpadding="0" border="0">
-                    <tr>
-                        <td align="left" style="padding-bottom: 20px;">
-                            <img src="https://twingenfuelfiles.blob.core.windows.net/lead-stream/heuro.png" alt="Heuro Logo" width="75">
-                        </td>
-                    </tr>
-                </table>
+                    <!-- Logo -->
+                    <table role="presentation" width="600px" cellspacing="0" cellpadding="0" border="0">
+                        <tr>
+                            <td align="left" style="padding-bottom: 20px;">
+                                <img src="https://twingenfuelfiles.blob.core.windows.net/lead-stream/heuro.png" alt="Heuro Logo" width="75">
+                            </td>
+                        </tr>
+                    </table>
 
-                <!-- Email Content -->
-                <table role="presentation" width="600px" cellspacing="0" cellpadding="0" border="0" 
-                    style="background: #ffffff; border-radius: 8px; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15); padding: 20px; text-align: left;">
-                    
-                    <tr>
-                        <td style="font-size: 16px; color: #333; padding: 10px 20px; line-height: 1.6;">
-                            <p>Hi {email_entry.sender_name},</p>
-                            <p><strong>Lead Stream has a new notification for you!</strong></p>
-                            <p>{email_entry.dm_name} <b>has opened your {'followup' if followup_entry else 'email'}</b> but has not yet responded.</p>
-                            <p>Here is the email that was sent to <strong>{email_entry.email_id}</strong>:</p>
-                            <p><strong>Subject:</strong> {email_entry.email_subject}</p>
-                            <p><strong>Body:</strong> {email_entry.email_body}</p>
-                            <p>Please check the email and take the necessary action.</p>
-                            <p>Thank you for using Lead Stream!</p>
-                        </td>
-                    </tr>
+                    <!-- Email Content -->
+                    <table role="presentation" width="600px" cellspacing="0" cellpadding="0" border="0" 
+                        style="background: #ffffff; border-radius: 8px; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15); padding: 20px; text-align: left;">
+                        
+                        <tr>
+                            <td style="font-size: 16px; color: #333; padding: 10px 20px; line-height: 1.6;">
+                                <p>Hi {email_entry.sender_name},</p>
+                                <p><strong>Lead Stream has a new notification for you!</strong></p>
+                                <p>{email_entry.dm_name} <b>has opened your {'followup' if followup_entry else 'email'}</b> but has not yet responded.</p>
+                                <p>Here is the email that was sent to <strong>{email_entry.email_id}</strong>:</p>
+                                <p><strong>Subject:</strong> {email_entry.email_subject}</p>
+                                <p><strong>Body:</strong> {email_entry.email_body}</p>
+                                <p>Please check the email and take the necessary action.</p>
+                                <p>Thank you for using Lead Stream!</p>
+                            </td>
+                        </tr>
 
-                </table>
+                    </table>
 
-            </td>
-        </tr>
-    </table>
+                </td>
+            </tr>
+        </table>
 
-</body>
-</html>
-"""
+        </body>
+        </html>
+        """
 
-        send_notification_email(email_entry.sender_email, "New Notification from Lead Stream!", html_body)
+    send_notification_email(email_entry.sender_email, "New Notification from Lead Stream!", html_body)
 
-        print(f"Email with Tracking ID: {tracking_id} has been opened.")
-    else:
-        db.close()
+    print(f"Email with Tracking ID: {tracking_id} has been opened.")
+    
+    db.close()
 
 @app.get("/track-response/{tracking_id}/{response}")
 async def track_response(tracking_id: str, response: str):
     # Update the email status to "Opened" in the database
     db = SessionLocal()
     email_entry = db.query(EmailStatus).filter(EmailStatus.id == tracking_id).first()
-    followup_entry = db.query(FollowupStatus).filter(FollowupStatus.email_id == tracking_id).first()
+    followup_entry = db.query(FollowupStatus).filter(FollowupStatus.followup_id == tracking_id).first()
 
     if email_entry and response == "interested":
         email_entry.status = "Interested"
         db.commit()
-        db.close()
         print(f"Email with Tracking ID: {tracking_id} has been opened and interested")
         #return a html page with a thank you message
         html_body = f"""
@@ -1137,12 +1156,13 @@ async def track_response(tracking_id: str, response: str):
         send_notification_email(email_entry.sender_email, "Hurray! You have a new lead", html_body)
 
         print(f"Email with Tracking ID: {tracking_id} has been opened and interested.")
+        db.close()
+
         return FileResponse("interested.html")
     
     if email_entry and response == "not-interested":
         email_entry.status = "Not Interested"
         db.commit()
-        db.close()
         print(f"Email with Tracking ID: {tracking_id} has been opened but not interested")
         html_body = f"""
 <!DOCTYPE html>
@@ -1196,12 +1216,13 @@ async def track_response(tracking_id: str, response: str):
         send_notification_email(email_entry.sender_email, "New Notification from Lead Stream!", html_body)
 
         print(f"Email with Tracking ID: {tracking_id} has been opened and interested.")
+        db.close()
+
         return FileResponse("not-interested.html")
     
     if followup_entry and response == "interested":
         followup_entry.status = "Interested"
         db.commit()
-        db.close()
         print(f"Followup with Tracking ID: {tracking_id} has been opened and interested")
         html_body = f"""
 <!DOCTYPE html>
@@ -1256,12 +1277,12 @@ async def track_response(tracking_id: str, response: str):
         send_notification_email(email_entry.sender_email, "Hurray! You have a new Lead", html_body)
 
         print(f"Email with Tracking ID: {tracking_id} has been opened and interested.")
+        db.close()
         return FileResponse("interested.html")
     
     if followup_entry and response == 'not-interested':
         followup_entry.status = "Not Interested"
         db.commit()
-        db.close()
         print(f"Followup with Tracking ID: {tracking_id} has been opened and not interested")
         html_body = f"""
 <!DOCTYPE html>
@@ -1316,6 +1337,7 @@ async def track_response(tracking_id: str, response: str):
         send_notification_email(email_entry.sender_email, "New Notification from Lead Stream!", html_body)
 
         print(f"Followup with Tracking ID: {tracking_id} has been opened and interested.")
+        db.close()
         return FileResponse("not-interested.html")
 
     else:
@@ -1992,6 +2014,8 @@ def get_generated_companies(user_id: str, product_id: str, db: Session = Depends
                 "personality_type": company.personality_type,
                 "linkedin_url": company.linkedin_url,  # New field
                 "decision_maker": company.decision_maker_name,  # New field
+                "subject": company.subject,  # New field
+                "body": company.body,  # New field
                 "decision_maker_mail": company.decision_maker_email,  # New field
                 "decision_maker_position": company.decision_maker_position,  # New field
                 "failed_company": company.failed_company
@@ -2018,6 +2042,10 @@ def update_generated_company_status(request: GeneratedCompanyUpdateRequest, user
         company.decision_maker_email = request.decision_maker_email  # New field
     if request.decision_maker_position:
         company.decision_maker_position = request.decision_maker_position  # New field
+    if request.subject:
+        company.subject = request.subject  # New field
+    if request.body:
+        company.body = request.body  # New field
     if request.domain_name:
         company.domain = request.domain_name
     if request.failed_company == True:

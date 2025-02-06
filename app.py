@@ -555,8 +555,11 @@ def get_potential_decision_makers(request: DecisionMakerRequest):
 
     query = f"{request.company_name} {request.industry}"
     print("QUERY: ", query)
-    result = google_search(api_key, domain_search_engine_id, query, limit=3)
-    domain_docs = [item.get('link').split('//')[-1].split('/')[0].replace('www.', '') for item in result.get('items', [])]
+    result = google_search(query, limit=3)
+    # result = google_search(api_key, domain_search_engine_id, query, limit=3)
+    # domain_docs = [item.get('link').split('//')[-1].split('/')[0].replace('www.', '') for item in result.get('items', [])]
+
+    domain_docs = [item.get('url').split('//')[-1].split('/')[0].replace('www.', '') for item in result]
 
     print("DOMAIN DOCS: ", domain_docs)
 
@@ -568,12 +571,14 @@ def get_potential_decision_makers(request: DecisionMakerRequest):
     results = []
     for i in positions:
         query = f"Current {i} at {domain} site:linkedin.com"
-        result = google_search(api_key, search_engine_id, query, limit=3)  # Set limit to 5
+        result = google_search(query, limit=3)
+        # result = google_search(api_key, search_engine_id, query, limit=3)  # Set limit to 5
         # Process results
         ref_res = []
-        for item in result.get('items', []):
+        # for item in result.get('items', []):
+        for item in result:
             title = item.get('title')
-            snippet = item.get('snippet')
+            snippet = item.get('description')
             print(f'Title: {title}\nSnippet: {snippet}\n')
             ref_res.append({'title': title, 'snippet': snippet})
         results.append({i: ref_res})
@@ -679,24 +684,26 @@ def get_potential_decision_makers(request: DecisionMakerRequest):
             print("Valid email:", valid_email)
             if valid_email:
                 linkedin_url_query = f"{key} {value} of {request.company_name} site:linkedin.com"
-                linkedin_url = google_search(api_key, search_engine_id, linkedin_url_query, limit=1)
+                linkedin_url = google_search(linkedin_url_query, limit=1)
+                # linkedin_url = google_search(api_key, search_engine_id, linkedin_url_query, limit=1)
                 print("Linkedin URL: ", linkedin_url)
-                if 'items' in linkedin_url.keys():                  
-                    company['linkedin_url'] = linkedin_url['items'][0]['link']
+                if len(linkedin_url) > 0:                  
+                    company['linkedin_url'] = linkedin_url[0]['url']
                 else:
                     company['linkedin_url'] = f'https://linkedin.com/pub/dir/{first_name}/{last_name}'
                 company['decision_maker_mail'] = valid_email
                 company['status'] = status
                 break
             else:
-                linkedin_url = google_search(api_key, search_engine_id, f"{key} {value} of {request.company_name} site:linkedin.com", limit=1)
+                linkedin_url = google_search(f"{key} {value} of {request.company_name} site:linkedin.com", limit=1)
+                # linkedin_url = google_search(api_key, search_engine_id, f"{key} {value} of {request.company_name} site:linkedin.com", limit=1)
                 print("Linkedin URL: ", linkedin_url)
                 # find for a key in linkedin_url
-                if 'items' in linkedin_url.keys():
-                    linkedin_urls.append(linkedin_url['items'][0]['link'])
+                if len(linkedin_url) > 0:                  
+                    company['linkedin_url'] = linkedin_url[0]['url']
                     company['linkedin_url'] = linkedin_urls
                 else:
-                    linkedin_urls.append('https://linkedin.com')
+                    linkedin_urls.append(f'https://linkedin.com/pub/dir/{first_name}/{last_name}')
                     company['linkedin_url'] = linkedin_urls
                 company['decision_maker_mail'] = None
                 dm_names.append(key)
@@ -1022,11 +1029,11 @@ async def track(tracking_id: str):
     email_entry = db.query(EmailStatus).filter(EmailStatus.id == tracking_id).first()
     followup_entry = db.query(FollowupStatus).filter(FollowupStatus.followup_id == tracking_id).first()
 
-    if email_entry:
+    if email_entry and (email_entry.status != "Interested" or email_entry.status != "Not Interested"):
         email_entry.status = "Opened but Not Responded"
         db.commit()
     
-    if followup_entry:
+    if followup_entry and (followup_entry.status != "Interested" or followup_entry.status != "Not Interested"):
         followup_entry.status = "Opened but Not Responded"
         db.commit()
 

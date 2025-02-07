@@ -195,6 +195,11 @@ class EmailProposalSystem:
         response = chat_completion(messages, 900)
         # parse the response to extract the subject and body
         try:
+            data = response
+            usage = data.get("usage", {})
+            print(f"Input tokens: {usage.get('prompt_tokens', 'N/A') * 0.0000002}")
+            print(f"Output tokens: {usage.get('completion_tokens', 'N/A') * 0.0000002}")
+            print(f"Total tokens: {usage.get('total_tokens', 'N/A')}")
             return response, decision_maker_context
         except json.JSONDecodeError:
             return {

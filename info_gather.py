@@ -99,6 +99,12 @@ def get_company_and_person_info(company_name, person_name, position, product_des
     try:
         response = chat_completion(messages, 900)
 
+        data = response
+        usage = data.get("usage", {})
+        print(f"Input tokens: {usage.get('prompt_tokens', 'N/A') * 0.0000002}")
+        print(f"Output tokens: {usage.get('completion_tokens', 'N/A') * 0.0000002}")
+        print(f"Total tokens: {usage.get('total_tokens', 'N/A')}")
+
         return response
     except (json.JSONDecodeError, KeyError) as e:
         return {"error": f"Analysis failed: {str(e)}"}

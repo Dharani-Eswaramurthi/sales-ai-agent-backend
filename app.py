@@ -493,33 +493,38 @@ def get_potential_companies(request: ProductRequest):
         raise HTTPException(status_code=500, detail="API Key not configured")
     
     prompt = f"""
-                Given the detailed product information and Ideal Client Profile (ICP) provided below, analyze and identify the top {request.limit} companies with strong growth potential that are likely to be interested in this product. Each identified company must align with the specified target company information, including employee count, industry, geographical location, and business model. Exclude any companies listed in the 'Existing Customers' from your results.
+Given the detailed product information and Ideal Client Profile (ICP) provided below, analyze and identify:
+1. The top {request.limit} companies that demonstrate a strong potential to become customers of {request.product_name}. Each identified company must strictly satisfy the specified target criteria—including employee count, industry, geographical location, and business model—and show clear indicators of being a viable future customer for this product. Exclude any companies listed in the 'Existing Customers' from this list.
+2. Additionally, identify the well established customers that satisfy the same criteria. 'Well established customers' are defined as companies with a significant market presence, a long track record of success, and stable growth. These companies should also meet the target criteria for employee count, industry, geographical location, and business model.
 
-                ### Product Information:
-                - **Product Name**: {request.product_name}
-                - **Product Description**: {request.product_description or 'N/A'}
-                - **Existing Customers**: {', '.join(request.existing_customers) if request.existing_customers else 'N/A'}
-                - **Target Industries**: {', '.join(request.target_industries) if request.target_industries else 'N/A'}
-                - **Target Employee Count**: {request.target_min_emp_count or 'N/A'} to {request.target_max_emp_count or 'N/A'}
-                - **Target Geographical Locations**: {', '.join(request.target_geo_loc) if request.target_geo_loc else 'N/A'}
-                - **Target Business Models**: {', '.join(request.target_business_model) if request.target_business_model else 'N/A'}
-                - **Addressing Pain Points**: {', '.join(request.addressing_pain_points) if request.addressing_pain_points else 'N/A'}
+### Product Information:
+- **Product Name**: {request.product_name}
+- **Product Description**: {request.product_description or 'N/A'}
+- **Existing Customers**: {', '.join(request.existing_customers) if request.existing_customers else 'N/A'}
+- **Target Industries**: {', '.join(request.target_industries) if request.target_industries else 'N/A'}
+- **Target Employee Count**: {request.target_min_emp_count or 'N/A'} to {request.target_max_emp_count or 'N/A'}
+- **Target Geographical Locations**: {', '.join(request.target_geo_loc) if request.target_geo_loc else 'N/A'}
+- **Target Business Models**: {', '.join(request.target_business_model) if request.target_business_model else 'N/A'}
+- **Addressing Pain Points**: {', '.join(request.addressing_pain_points) if request.addressing_pain_points else 'N/A'}
 
-                ### Instructions:
-                - **Data Accuracy**: Ensure all company details, especially domain names, are accurate and verified through reliable sources. Avoid assumptions or unverifiable information.
-                - **Web Browsing**: Utilize official company websites, reputable business directories, and recent news articles to gather current and precise information. Provide companies that has a valid domain.
-                - **Exclusions**: Strictly exclude companies listed under 'Existing Customers'.
+### Chain-of-Thought Instructions (Internal Use Only):
+Employ a chain-of-thought method to thoroughly analyze the provided information and determine:
+- The companies with strong potential to become customers of {request.product_name}, ensuring they meet all specified criteria and are not part of 'Existing Customers'.
+- The companies that are well established customers, characterized by a significant market presence, long operational history, and stable growth, while also meeting the target criteria.
+**Do not include any internal reasoning or chain-of-thought details in the final output.**
 
-                ### Output Format:
-                Provide a list of dictionaries, each containing:
-                - name: Company name
-                - industry: Industry type
-                - domain: Company's domain name (ensure accuracy; exclude 'www.', 'http://', or 'https://')
+### Instructions:
+- **Data Accuracy**: Ensure all company details, especially domain names, are accurate and verified through reliable sources. Avoid assumptions or unverifiable information.
+- **Web Browsing**: Utilize official company websites, reputable business directories, and recent news articles to gather current and precise information. Provide companies that have a valid domain.
+- **Exclusions**: For the list of potential customers, strictly exclude companies listed under 'Existing Customers'.
 
-                Ensure that the output strictly adheres to this format and includes only the top {request.limit} potential companies that meet all specified criteria. If certain details cannot be verified, omit those companies from the list. Provide only the JSON as output without any additional text or content.
+### Output Format:
+- name: Company name
+- industry: Industry type
+- domain: Company's domain name (ensure accuracy; exclude 'www.', 'http://', or 'https://')
 
-                NOTE: STRICTLY, exclude the companies that are mentioned in the "Existing Customers". Provide only the JSON as output. Do not include any additional text or content in the output.
-                """
+Ensure that the output strictly adheres to this format and includes only companies that meet all specified criteria. If certain details cannot be verified, omit those companies from the list. Provide only the JSON as output without any additional text or content.
+"""
 
 
 
@@ -535,6 +540,11 @@ def get_potential_companies(request: ProductRequest):
             headers={"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"},
             json=payload,
         )
+        data = response.json()
+        usage = data.get("usage", {})
+        print(f"Input tokens: {usage.get('prompt_tokens', 'N/A') * 0.0000002}")
+        print(f"Output tokens: {usage.get('completion_tokens', 'N/A') * 0.0000002}")
+        print(f"Total tokens: {usage.get('total_tokens', 'N/A')}")
         response.raise_for_status()
     except requests.exceptions.RequestException as e:
         raise HTTPException(status_code=500, detail=f"API request failed: {str(e)}")
@@ -645,7 +655,11 @@ def get_potential_decision_makers(request: DecisionMakerRequest):
             headers={"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"},
             json=payload,
         )
-
+        data = response.json()
+        usage = data.get("usage", {})
+        print(f"Input tokens: {usage.get('prompt_tokens', 'N/A') * 0.000005}")
+        print(f"Output tokens: {usage.get('completion_tokens', 'N/A') * 0.000008}")
+        print(f"Total tokens: {usage.get('total_tokens', 'N/A')}")
         response.raise_for_status()
     
     except requests.exceptions.RequestException as e:

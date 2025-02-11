@@ -16,6 +16,7 @@ from google_api import google_search
 from info_gather import get_company_and_person_info
 import requests
 import os
+import dns.resolver
 import json
 import re
 from fastapi.middleware.cors import CORSMiddleware
@@ -328,6 +329,43 @@ def decrypt_password(encrypted_password: str) -> str:
     decrypted_data = cipher.decrypt(ciphertext)
     return unpad(decrypted_data, 16).decode("utf-8")
 
+def identify_smtp_server(email: str) -> tuple:
+    # Extract the domain from the email address.
+    try:
+        domain = email.split('@')[-1].lower()
+    except IndexError:
+        raise HTTPException(status_code=400, detail="Invalid email format")
+    
+    # Mapping from substrings (found in MX records) to SMTP server settings.
+    # For example, if the MX record contains 'google.com' then we assume the provider is Gmail.
+    known_mx_map = {
+        'google.com': ('smtp.gmail.com', 587),
+        'yahoo.com': ('smtp.mail.yahoo.com', 587),
+        'outlook.com': ('smtp.office365.com', 587),
+        'hotmail.com': ('smtp.office365.com', 587),
+        'hostinger.com': ('smtp.hostinger.com', 587),
+        # You can add additional keys as needed.
+    }
+    
+    # Attempt to retrieve the MX records for the domain.
+    try:
+        mx_records = dns.resolver.resolve(domain, 'MX')
+    except Exception as e:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Unable to resolve MX record for domain '{domain}': {e}"
+        )
+    
+    # Check each MX record against the known keys.
+    for mx in mx_records:
+        mx_name = str(mx.exchange).rstrip('.').lower()
+        for key, smtp_info in known_mx_map.items():
+            if key in mx_name:
+                return smtp_info
+    
+    # If no known key is found in the MX records, return a default SMTP server.
+    return ("smtpout.secureserver.net", 587)
+
 
 @app.post("/register/")
 def register_user(user: UserCreate, db: Session = Depends(get_db)):
@@ -619,7 +657,7 @@ def get_potential_decision_makers(request: DecisionMakerRequest):
 
                 Execute:  
                 1. **Identify Decision Makers**  
-                - Select 3 profiles with highest business decision authority using hierarchy:  
+                - Select 1 profile with highest business decision authority using hierarchy:  
                     CEO/CFO/COO > President/VP > Director > Department Head  
                 - Exclude technical/operational roles (e.g., IT Manager, HR Lead)  
 
@@ -891,6 +929,9 @@ async def send_email(email: EmailData, user_id: str, user_email: str, encrypted_
     finally:
         db.close()
 
+    # Identify SMTP server
+    smtp_server = identify_smtp_server(user_email)
+
     # Email content with tracking pixel
     html_body = f"""
 <!DOCTYPE html>
@@ -956,7 +997,7 @@ async def send_email(email: EmailData, user_id: str, user_email: str, encrypted_
     msg.attach(MIMEText(html_body, 'html'))
 
     try:
-        with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
+        with smtplib.SMTP(smtp_server, SMTP_PORT) as server:
             server.ehlo()
             server.starttls()
             server.ehlo()
@@ -1518,6 +1559,9 @@ async def send_followup_email(user_id: str, user_email: str, encrypted_password:
         # Decrypt the password
         decrypted_password = decrypt_password(encrypted_password)
 
+        # Identify SMTP server
+        smtp_server = identify_smtp_server(user_email)
+
         # Send follow-up email
         msg = MIMEMultipart()
         msg['From'] = user_email
@@ -1580,7 +1624,7 @@ async def send_followup_email(user_id: str, user_email: str, encrypted_password:
         msg.attach(MIMEText(html_body, 'html'))
 
         try:
-            with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
+            with smtplib.SMTP(smtp_server, SMTP_PORT) as server:
                 server.ehlo()
                 server.starttls()
                 server.ehlo()

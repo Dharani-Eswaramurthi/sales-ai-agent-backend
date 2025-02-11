@@ -191,7 +191,8 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:3000",
         "https://lead-stream.heuro.in",  # Correct URL without trailing slash
-        "https://sales-ai-agent-crm-fgbna0ghdrhxb5hp.centralindia-01.azurewebsites.net"
+        "https://sales-ai-agent-crm-fgbna0ghdrhxb5hp.centralindia-01.azurewebsites.net",
+        "https://leadagent.in",
     ],
     allow_credentials=True,
     allow_methods=["*"],

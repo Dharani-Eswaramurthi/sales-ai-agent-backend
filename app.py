@@ -31,6 +31,8 @@ from passlib.context import CryptContext
 import jwt
 from typing import Optional
 from email_proposal import EmailProposalSystem
+import razorpay
+import smtplib
 
 # Load environment variables from .env file
 load_dotenv()
@@ -40,6 +42,11 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=True, bind=engine)
 secret_key = os.getenv('ENCRYPTION_KEY')
+
+# Razorpay setup
+RAZORPAY_KEY_ID = os.getenv('RAZORPAY_KEY_ID')
+RAZORPAY_KEY_SECRET = os.getenv('RAZORPAY_KEY_SECRET')
+razorpay_client = razorpay.Client(auth=(RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET))
 
 Base = declarative_base()
 
@@ -163,7 +170,7 @@ class GeneratedCompany(Base):
     company_name = Column(String, nullable=False)
     industry = Column(String, nullable=True)
     domain = Column(String, nullable=True)
-    status = Column(String, default="Not Contacted")
+    status = Column(String, default="Decision Maker Found")
     personality_type = Column(String, nullable=True)
     subject = Column(String, nullable=True)
     body = Column(String, nullable=True)
@@ -172,6 +179,16 @@ class GeneratedCompany(Base):
     decision_maker_email = Column(String, nullable=True)  # New field
     decision_maker_position = Column(String, nullable=True)  # New field
     failed_company = Column(Boolean, default=False)  # New field
+
+# Subscription Model
+class Subscription(Base):
+    __tablename__ = "subscriptions"
+    id = Column(String, primary_key=True, default='subscription_' + str(uuid.uuid4()))
+    user_id = Column(String, ForeignKey('users.id', ondelete='CASCADE'))
+    plan_name = Column(String, nullable=False)
+    start_date = Column(TIMESTAMP, default=datetime.utcnow)
+    end_date = Column(TIMESTAMP, nullable=False)
+    status = Column(String, default="Active")
 
 Base.metadata.create_all(bind=engine)
 
@@ -225,6 +242,8 @@ class FollowupData(BaseModel):
     recipient: str = None
 
 class ProductRequest(BaseModel):
+    user_id: Optional[str] = None
+    product_id: Optional[str] = None
     product_name: str
     existing_customers: List[str] = None
     product_description: str = None
@@ -237,7 +256,6 @@ class ProductRequest(BaseModel):
     limit: int = 5
 
 class DecisionMakerRequest(BaseModel):
-    user_id: str
     company_name: str
     domain_name: str
     industry: str
@@ -305,6 +323,16 @@ class GeneratedCompanyUpdateRequest(BaseModel):
     decision_maker_position: Optional[str] = None  # New field
     failed_company: Optional[bool] = False  # New field
     domain_name: Optional[str] = None
+
+class SubscriptionRequest(BaseModel):
+    plan_name: str
+    duration_days: int
+    amount: float
+
+class PaymentSuccess(BaseModel):
+    order_id: str
+    payment_id: str
+    signature: str
 
 # OpenAI and Perplexity Configuration
 API_KEY = os.getenv("PERPLEXITY_API_KEY")
@@ -527,19 +555,24 @@ def get_user(user_id: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail=f"Error fetching user: {e}")
 
 @app.post("/potential-companies")
-def get_potential_companies(request: ProductRequest):
+def get_potential_companies(request: ProductRequest, db: Session = Depends(get_db)):
     if not API_KEY:
         raise HTTPException(status_code=500, detail="API Key not configured")
     
-    prompt = f"""
+    existing_customers = request.existing_customers
+    potential_dms = []
+    
+    while len(potential_dms) < request.limit:
+        try:
+            prompt = f"""
 Given the detailed product information and Ideal Client Profile (ICP) provided below, analyze and identify:
 1. The top {request.limit} companies that demonstrate a strong potential to become customers of {request.product_name}. Each identified company must strictly satisfy the specified target criteria—including employee count, industry, geographical location, and business model—and show clear indicators of being a viable future customer for this product. Exclude any companies listed in the 'Existing Customers' from this list.
-2. Additionally, identify the well established customers that satisfy the same criteria. 'Well established customers' are defined as companies with a significant market presence, a long track record of success, and stable growth. These companies should also meet the target criteria for employee count, industry, geographical location, and business model.
+2. Craft the output potential companies with the limit of {request.limit} that are defined as companies with a significant market presence, a long track record of success, and stable growth. These companies should also meet the target criteria for employee count, industry, geographical location, and business model.
 
 ### Product Information:
 - **Product Name**: {request.product_name}
 - **Product Description**: {request.product_description or 'N/A'}
-- **Existing Customers**: {', '.join(request.existing_customers) if request.existing_customers else 'N/A'}
+- **Existing Customers**: {', '.join(existing_customers) if existing_customers else 'N/A'}
 - **Target Industries**: {', '.join(request.target_industries) if request.target_industries else 'N/A'}
 - **Target Employee Count**: {request.target_min_emp_count or 'N/A'} to {request.target_max_emp_count or 'N/A'}
 - **Target Geographical Locations**: {', '.join(request.target_geo_loc) if request.target_geo_loc else 'N/A'}
@@ -557,7 +590,7 @@ Employ a chain-of-thought method to thoroughly analyze the provided information 
 - **Web Browsing**: Utilize official company websites, reputable business directories, and recent news articles to gather current and precise information. Provide companies that have a valid domain.
 - **Exclusions**: For the list of potential customers, strictly exclude companies listed under 'Existing Customers'.
 
-### Output Format:
+### Output Format: ( provide only the JSON with the below keys alone as output without any additional text or content )
 - name: Company name
 - industry: Industry type
 - domain: Company's domain name (ensure accuracy; exclude 'www.', 'http://', or 'https://')
@@ -565,33 +598,119 @@ Employ a chain-of-thought method to thoroughly analyze the provided information 
 Ensure that the output strictly adheres to this format and includes only companies that meet all specified criteria. If certain details cannot be verified, omit those companies from the list. Provide only the JSON as output without any additional text or content.
 """
 
+            payload = {
+                "model": "llama-3.1-sonar-large-128k-online",
+                "messages": [{"role": "user", "content": prompt}],
+                "max_tokens": 300,
+            }
+            response = requests.post(
+                BASE_URL,
+                headers={"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"},
+                json=payload,
+            )
+            data = response.json()
+            usage = data.get("usage", {})
+            print(f"Input tokens: {usage.get('prompt_tokens', 'N/A') * 0.0000002}")
+            print(f"Output tokens: {usage.get('completion_tokens', 'N/A') * 0.0000002}")
+            print(f"Total tokens: {usage.get('total_tokens', 'N/A')}")
+            response.raise_for_status()
+        except requests.exceptions.RequestException as e:
+            raise HTTPException(status_code=500, detail=f"API request failed: {str(e)}")
 
+        formatted_response = format_response(response.json())
 
-    payload = {
-        "model": "llama-3.1-sonar-large-128k-online",
-        "messages": [{"role": "user", "content": prompt}],
-        "max_tokens": 300,
-    }
+        for company in formatted_response:
+            comp_name = company['name']
+            industry = company['industry']
+            domain = company['domain']
+            existing_customers.append(comp_name)
+            print("Req", existing_customers)
+            ref_request = DecisionMakerRequest(company_name=comp_name, domain_name=domain, industry=industry)
+            potential_dm = get_potential_decision_makers(request=ref_request)
+            if potential_dm['decision_maker_mail']:
+                potential_dm['status'] = "Decision Maker Found"
+                potential_dms.append(potential_dm)
+                if len(potential_dms) == request.limit:
+                    break
 
-    try:
-        response = requests.post(
-            BASE_URL,
-            headers={"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"},
-            json=payload,
-        )
-        data = response.json()
-        usage = data.get("usage", {})
-        print(f"Input tokens: {usage.get('prompt_tokens', 'N/A') * 0.0000002}")
-        print(f"Output tokens: {usage.get('completion_tokens', 'N/A') * 0.0000002}")
-        print(f"Total tokens: {usage.get('total_tokens', 'N/A')}")
-        response.raise_for_status()
-    except requests.exceptions.RequestException as e:
-        raise HTTPException(status_code=500, detail=f"API request failed: {str(e)}")
+    print("Potential companies fetched and formatted: ", potential_dms)
 
-    formatted_response = format_response(response.json())
-    return formatted_response
+    req = GeneratedCompanyRequest(product_id=request.product_id, companies=potential_dms)
 
-@app.post("/potential-decision-makers")
+    add_generated_company = add_generated_companies(req, request.user_id)
+
+    # send a notification message telling the user that the companies have been generated
+    db = SessionLocal()
+    user_mail = db.query(User).filter(User.id == request.user_id).first().email
+    smtp_server, smtp_port = identify_smtp_server(user_mail)
+
+    html_body = f"""<!DOCTYPE html>
+                    <html lang="en">
+                    <head>
+                        <meta charset="UTF-8">
+                        <meta name="viewport" content="width=device-width, initial-scale=1">
+                        <title>Companies Generated</title>
+                    </head>
+                    <body style="background-color: rgb(89,227,167); margin: 0; padding: 20px; font-family: Arial, sans-serif; text-align: center;">
+
+                        <!-- Wrapper Table to Center Everything -->
+                        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+                            <tr>
+                                <td align="center">
+
+                                    <!-- Logo Row (Placed Above the Container) -->
+                                    <table role="presentation" width="360px" cellspacing="0" cellpadding="0" border="0">
+                                        <tr>
+                                            <td align="left" style="padding-bottom: 15px;">
+                                                <img src="https://twingenfuelfiles.blob.core.windows.net/lead-stream/heuro.png" alt="Heuro Logo" width="80">
+                                            </td>
+                                        </tr>
+                                    </table>
+
+                                    <!-- Email Container -->
+                                    <table role="presentation" width="360px" cellspacing="0" cellpadding="0" border="0" style="background-color: #ffffff; border-radius: 10px; box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1); padding: 20px; text-align: center;">
+                                        
+                                        <!-- Title -->
+                                        <tr>
+                                            <td style="font-size: 22px; font-weight: bold; color: #2c3e50; padding-bottom: 10px;">
+                                                Companies Generated
+                                            </td>
+                                        </tr>
+
+                                        <!-- Message -->
+                                        <tr>
+                                            <td style="font-size: 14px; color: #7f8c8d; padding-bottom: 20px;">
+                                                The potential companies have been generated successfully. Please check your dashboard for more details.
+                                            </td>
+                                        </tr>
+                                        <tr>
+                                            <td style="font-size: 14px; color: #7f8c8d; padding-bottom: 20px;">
+                                                <a href="https://leadagent.in/generate" target="_blank" style="color: #4ca1af; text-decoration: none;">Leadagent</a>
+                                            </td>
+                                        </tr>
+
+                                        <!-- Footer -->
+                                        <tr>
+                                            <td style="font-size: 12px; color: #95a5a6; padding-top: 20px;">
+                                                Lead Stream is a product of <a href="https://heuro.in" target="_blank" style="color: #4ca1af; text-decoration: none;">heuro.in</a>
+                                            </td>
+                                        </tr>
+
+                                    </table>
+                                    
+                                </td>
+                            </tr>
+                        </table>
+
+                    </body>
+                    </html>
+                    """
+    
+    send_notification_email(user_mail, "Companies Generated", html_body)
+
+    return potential_dms
+
+# @app.post("/potential-decision-makers")
 def get_potential_decision_makers(request: DecisionMakerRequest):
     if not API_KEY:
         raise HTTPException(status_code=500, detail="API Key not configured")
@@ -616,7 +735,7 @@ def get_potential_decision_makers(request: DecisionMakerRequest):
     domain = request.domain_name
     print(domain_docs)
 
-    positions = ['CEO', 'Founder', 'VP', 'Sales Person']
+    positions = ['CEO', 'Founder']
     results = []
     for i in positions:
         query = f"Current {i} at {domain} site:linkedin.com"
@@ -649,44 +768,25 @@ def get_potential_decision_makers(request: DecisionMakerRequest):
     
     print("Decision makers details fetched for ", comp_name)
 
-    prompt = f"""
-                Given:  
-                - Company: {comp_name}  
-                - Initial Domain Claim: {domain}  
-                - Domain Validation Documents: {domain_docs}  
-                - LinkedIn Profiles: {scrapped_docs}  
+    prompt = (
+                f"Company: {comp_name}\n"
+                f"Domain: {domain}\n"
+                f"Domain Docs: {domain_docs}\n"
+                f"LinkedIn Profiles: {scrapped_docs}\n\n"
+                "Task:\n"
+                "1. Identify the top decision maker from the LinkedIn profiles using this hierarchy: CEO/CFO/COO > President/VP > Director > Department Head. Exclude technical roles.\n"
+                "2. Validate the domain by comparing it with keywords in the Domain Docs. If there's a mismatch, extract the dominant industry; if unclear, retain the original.\n"
+                "3. Return a JSON object where the key is the person's name (with the value being their role) and include a key 'domain' with the validated (or original) domain.\n"
+                "Output only the JSON, with no additional text."
+            )
 
-                Execute:  
-                1. **Identify Decision Makers**  
-                - Select 1 profile with highest business decision authority using hierarchy:  
-                    CEO/CFO/COO > President/VP > Director > Department Head  
-                - Exclude technical/operational roles (e.g., IT Manager, HR Lead)  
-
-                2. **Validate/Correct Domain**  
-                - Compare {domain} with keywords in {domain_docs}  
-                - If mismatch: Extract dominant industry from documents  
-                - If unclear: Retain original {domain}  
-
-                3. **Output Fields**
-                - Get the Name and Role of the identified person
-                - Replace them in the output json
-
-                Output **ONLY** this JSON ( Replace with person's name and title in the respective field ):  
-                ( Provide person name as the key and role as the value in the JSON, also add a key called domain with value as the validated domain or original domain. )
-                ( Do not include any additional text or content in the output ) 
-
-                """
-    
-    # Prepare the Perplexity API request payload
     payload = {
         "model": "sonar-reasoning-pro",
         "messages": [
-            {
-                "role": "user",
-                "content": prompt
-            }
+            {"role": "user", "content": prompt}
         ],
     }
+
 
     try:
         response = requests.post(
@@ -708,7 +808,7 @@ def get_potential_decision_makers(request: DecisionMakerRequest):
 
     print("Decision makers found and formatted for ", comp_name,"and they are", api_response)
 
-    company = {'name': comp_name, 'decision_maker': None, 'decision_maker_mail': None, 'decision_maker_position': None, 'linkedin_url': None, 'domain': api_response['domain']}
+    company = {'name': comp_name, 'decision_maker_name': None, 'decision_maker_mail': None, 'decision_maker_position': None, 'linkedin_url': None, 'domain': api_response['domain'], 'industry': request.industry}
 
     dm_names = []
     dm_positions = []
@@ -717,7 +817,7 @@ def get_potential_decision_makers(request: DecisionMakerRequest):
     for key, value in api_response.items():
             
         if key.strip(' ')[2] != 'linkedin' and key.strip() != 'domain':
-            company['decision_maker'] = key
+            company['decision_maker_name'] = key
             company['decision_maker_position'] = value
 
             first_name = None
@@ -1061,7 +1161,7 @@ async def send_email(email: EmailData, user_id: str, user_email: str, encrypted_
         print(f"Email Sending Error: {e}")  # Debugging: Print the email sending error
         raise HTTPException(status_code=500, detail=f"Error sending email: {e}")
 
-def send_notification_email(to_email: str, subject: str, body: str):
+def send_notification_email(to_email: str, subject: str, body: str, smtp_server: str = SMTP_SERVER):
     msg = MIMEMultipart()
     msg['From'] = os.getenv('EMAIL_USERNAME')
     msg['To'] = to_email
@@ -1069,7 +1169,7 @@ def send_notification_email(to_email: str, subject: str, body: str):
     msg.attach(MIMEText(body, 'html'))
 
     try:
-        with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
+        with smtplib.SMTP(smtp_server, SMTP_PORT) as server:
             server.ehlo()
             server.starttls()
             server.ehlo()
@@ -1819,6 +1919,13 @@ def add_product(user_id: str, request: ProductRequest, db: Session = Depends(get
     # Check if the user has reached the product limit
     if user.product_limit <= 0:
         raise HTTPException(status_code=400, detail="Product limit reached. Please upgrade your plan to add more products")
+    
+    product_name = request.product_name
+
+    # Check if the product name already exists
+    product = db.query(ProductDetails).filter(ProductDetails.product_name == product_name, ProductDetails.user_id == user_id).first()
+    if product:
+        raise HTTPException(status_code=400, detail="Product with the same name already exists")
 
     try:
         new_product = ProductDetails(
@@ -2027,8 +2134,9 @@ def edit_positions(user_id: str, request: PositionEditRequest, db: Session = Dep
     db.commit()
     return {"message": "Position updated successfully"}
 
-@app.post("/add_generated_companies/")
+# @app.post("/add_generated_companies/")
 def add_generated_companies(request: GeneratedCompanyRequest, user_id: str, db: Session = Depends(get_db)):
+    db = SessionLocal()
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -2052,10 +2160,11 @@ def add_generated_companies(request: GeneratedCompanyRequest, user_id: str, db: 
                 company_name=company["name"],
                 industry=company.get("industry"),
                 domain=company.get("domain"),
-                status="Not Contacted",
+                status=company.get("status"),
                 decision_maker_name=company.get("decision_maker_name"),  # Allow null
                 decision_maker_email=company.get("decision_maker_email"),  # Allow null
-                decision_maker_position=company.get("decision_maker_position")  # Allow null
+                decision_maker_position=company.get("decision_maker_position"),  # Allow null
+                linkedin_url = company.get("linkedin_url"),  # New field
             )
             db.add(new_company)
         db.commit()
@@ -2127,6 +2236,74 @@ def update_generated_company_status(request: GeneratedCompanyUpdateRequest, user
 
     db.commit()
     return {"message": "Company status updated successfully"}
+
+@app.post("/subscribe/{user_id}")
+def subscribe_user(request: SubscriptionRequest, user_id: str, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    # Create Razorpay order
+    razorpay_order = razorpay_client.order.create({
+        "amount": int(request.amount * 100),  # amount in paise
+        "currency": "INR",
+        "payment_capture": "1"
+    })
+
+    end_date = datetime.utcnow() + timedelta(days=request.duration_days)
+    new_subscription = Subscription(
+        user_id=user_id,
+        plan_name=request.plan_name,
+        end_date=end_date,
+        status="Pending",
+        id=razorpay_order["id"]
+    )
+    db.add(new_subscription)
+    db.commit()
+    return {
+        "message": "Subscription initiated successfully",
+        "subscription_id": new_subscription.id,
+        "order_id": razorpay_order["id"],
+        "amount": razorpay_order["amount"],
+        "currency": razorpay_order["currency"]
+    }
+
+@app.post("/payment-success/")
+def payment_success(payment: PaymentSuccess, db: Session = Depends(get_db)):
+    # Verify the payment signature
+    params_dict = {
+        'razorpay_order_id': payment.order_id,
+        'razorpay_payment_id': payment.payment_id,
+        'razorpay_signature': payment.signature
+    }
+    try:
+        razorpay_client.utility.verify_payment_signature(params_dict)
+    except razorpay.errors.SignatureVerificationError:
+        raise HTTPException(status_code=400, detail="Invalid payment signature")
+
+    # Fetch payment details from Razorpay
+    payment_details = razorpay_client.payment.fetch(payment.payment_id)
+
+    # Update the subscription status
+    subscription = db.query(Subscription).filter(Subscription.id == payment.order_id).first()
+    if not subscription:
+        raise HTTPException(status_code=404, detail="Subscription not found")
+
+    subscription.status = "Active"
+    db.commit()
+    return {"message": "Payment verified and subscription activated"}
+
+@app.put("/cancel_subscription/{subscription_id}")
+def cancel_subscription(subscription_id: str, user_id: str, db: Session = Depends(get_db)):
+    subscription = db.query(Subscription).filter(Subscription.id == subscription_id, Subscription.user_id == user_id).first()
+    if not subscription:
+        raise HTTPException(status_code=404, detail="Subscription not found or you do not have permission to cancel this subscription")
+
+    subscription.status = "Cancelled"
+    db.commit()
+    return {"message": "Subscription cancelled successfully"}
+
+
 
 if __name__ == "__main__":
     import uvicorn

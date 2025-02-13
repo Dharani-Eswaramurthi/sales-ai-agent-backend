@@ -33,57 +33,17 @@ def chat_completion(messages, tokens):
 # Function to create chat messages and retrieve information
 def get_company_and_person_info(company_name, person_name, position, product_description):
     """Enhanced information gathering for hyper-personalized emails"""
-    prompt = f'''
-    As a Business Intelligence Analyst, analyze these entities:
-
-    **Product**: {product_description}
-
-    **Analysis Steps**:
-    1. Company Analysis ({company_name}):
-    - Recent news/updates (past 6 months)
-    - Financial trends/earnings reports
-    - Current challenges/pain points related to: 
-      * Operational efficiency
-      * Market competition
-      * Technological adoption
-    - Industry position/ranking
-    - Strategic initiatives
-
-    2. Decision Maker Profile ({person_name}, {position}):
-    - Communication style preferences (data-driven, visionary, pragmatic)
-    - Personality indicators (Myers-Briggs type if inferrable)
-    - Career milestones/achievements
-    - Public speaking topics/interests
-    - Leadership style indicators
-    - Recent professional moves/awards
-
-    3. Synergy Analysis:
-    - Map product capabilities to {company_name}'s verified needs
-    - Align value proposition with {person_name}'s decision-making patterns
-    - Identify 3 key persuasion leverage points
-
-    **Output Format** (strictly provide JSON format and no extra text or comments):
-    {{
-        "company_analysis": {{
-            "recent_news": "str",
-            "financial_health": "str",
-            "verified_challenges": ["str"],
-            "strategic_priorities": ["str"]
-        }},
-        "decision_maker_profile": {{
-            "communication_style": "str",
-            "personality_indicators": "str",
-            "personality_type": "str", ( give in 4 to 5 words, also if your giving in Myers-Briggs type, include the full form of it )
-            "key_achievements": "str",
-            "recent_activities": "str"
-        }},
-        "synergy_points": {{
-            "product_fit": "str",
-            "persuasion_levers": ["str"],
-            "urgency_factors": ["str"]
-        }}
-    }}
-    '''.strip()
+    prompt = (
+    f"Product: {product_description}\n"
+    f"Company: {company_name}\n"
+    f"Decision Maker: {person_name}, {position}\n\n"
+    "Analyze the following:\n"
+    "1. Company Analysis: Provide recent news (past 6 months), financial trends/earnings, key challenges (operational efficiency, market competition, tech adoption), industry ranking, and strategic initiatives.\n"
+    "2. Decision Maker Profile: Describe communication style (data-driven, visionary, pragmatic), personality indicators, Myers-Briggs type (4-5 words with full form), key achievements, and recent activities.\n"
+    "3. Synergy Analysis: Map product capabilities to the company’s needs, align value proposition with the decision maker's style, and list 3 key persuasion leverage points.\n\n"
+    "Output strictly as JSON with these keys:\n"
+    '{"company_analysis": {"recent_news": "str", "financial_health": "str", "verified_challenges": ["str"], "strategic_priorities": ["str"]}, "decision_maker_profile": {"communication_style": "str", "personality_indicators": "str", "personality_type": "str", "key_achievements": "str", "recent_activities": "str"}, "synergy_points": {"product_fit": "str", "persuasion_levers": ["str"], "urgency_factors": ["str"]}}'
+)
 
     messages = [
         {
@@ -95,6 +55,7 @@ def get_company_and_person_info(company_name, person_name, position, product_des
             "content": prompt
         }
     ]
+
 
     try:
         response = chat_completion(messages, 900)

@@ -33,6 +33,8 @@ from typing import Optional
 from email_proposal import EmailProposalSystem
 import razorpay
 import smtplib
+#import time module
+import time
 
 # Load environment variables from .env file
 load_dotenv()
@@ -136,6 +138,7 @@ class ProductDetails(Base):
     product_id = Column(String, primary_key=True, default='product_'+str(uuid.uuid4()))
     user_id = Column(String, ForeignKey('users.id', ondelete='CASCADE'))  # Add user_id field
     product_name = Column(String, nullable=False)
+    preloading_status = Column(Boolean, default=False)  # New field
     existing_customers = Column(String, nullable=True)
     product_description = Column(String, nullable=True)
     target_min_emp_count = Column(Integer, nullable=True)
@@ -333,6 +336,9 @@ class PaymentSuccess(BaseModel):
     order_id: str
     payment_id: str
     signature: str
+
+class PaymentFailure(BaseModel):
+    order_id: str
 
 # OpenAI and Perplexity Configuration
 API_KEY = os.getenv("PERPLEXITY_API_KEY")
@@ -561,6 +567,14 @@ def get_potential_companies(request: ProductRequest, db: Session = Depends(get_d
     
     existing_customers = request.existing_customers
     potential_dms = []
+
+    db = SessionLocal()
+    product_item = db.query(ProductDetails).filter(ProductDetails.product_id == request.product_id).first()
+    if not product_item:
+        raise HTTPException(status_code=404, detail="Product not found")
+    
+    product_item.preloading_status = True
+    db.commit()
     
     while len(potential_dms) < request.limit:
         try:
@@ -570,18 +584,18 @@ Given the detailed product information and Ideal Client Profile (ICP) provided b
 2. Craft the output potential companies with the limit of {request.limit} that are defined as companies with a significant market presence, a long track record of success, and stable growth. These companies should also meet the target criteria for employee count, industry, geographical location, and business model.
 
 ### Product Information:
-- **Product Name**: {request.product_name}
-- **Product Description**: {request.product_description or 'N/A'}
-- **Existing Customers**: {', '.join(existing_customers) if existing_customers else 'N/A'}
-- **Target Industries**: {', '.join(request.target_industries) if request.target_industries else 'N/A'}
-- **Target Employee Count**: {request.target_min_emp_count or 'N/A'} to {request.target_max_emp_count or 'N/A'}
-- **Target Geographical Locations**: {', '.join(request.target_geo_loc) if request.target_geo_loc else 'N/A'}
-- **Target Business Models**: {', '.join(request.target_business_model) if request.target_business_model else 'N/A'}
-- **Addressing Pain Points**: {', '.join(request.addressing_pain_points) if request.addressing_pain_points else 'N/A'}
+- **Product Name**: {request.product_name} ( This is the name of the product )
+- **Product Description**: {request.product_description or 'N/A'} ( Thsi is what the product does )
+- **Existing Customers**: {', '.join(existing_customers) if existing_customers else 'N/A'} (  These are the companies that are already maybe using the product )
+- **Target Industries**: {', '.join(request.target_industries) if request.target_industries else 'N/A'} ( These are the industries that the product is targeting, so Identify companies in these industries )
+- **Target Employee Count**: {request.target_min_emp_count or 'N/A'} to {request.target_max_emp_count or 'N/A'} ( These is the range of employees in the company, so identify companies in this employee count range )
+- **Target Geographical Locations**: {', '.join(request.target_geo_loc) if request.target_geo_loc else 'N/A'} ( These are the locations where the companies should be located, so identify companies with mix of these locations )
+- **Target Business Models**: {', '.join(request.target_business_model) if request.target_business_model else 'N/A'} ( These are the business models that the product is targeting, so identify companies with these business models )
+- **Addressing Pain Points**: {', '.join(request.addressing_pain_points) if request.addressing_pain_points else 'N/A'} ( These are the pain points that the product is addressing, so identify companies with these pain points )
 
 ### Chain-of-Thought Instructions (Internal Use Only):
 Employ a chain-of-thought method to thoroughly analyze the provided information and determine:
-- The companies with strong potential to become customers of {request.product_name}, ensuring they meet all specified criteria and are not part of 'Existing Customers'.
+- The companies with strong potential to become customers of {request.product_name}, ensuring they meet all specified criteria and strictly are not part of Existing Customers: {existing_customers}.
 - The companies that are well established customers, characterized by a significant market presence, long operational history, and stable growth, while also meeting the target criteria.
 **Do not include any internal reasoning or chain-of-thought details in the final output.**
 
@@ -708,6 +722,10 @@ Ensure that the output strictly adheres to this format and includes only compani
     
     send_notification_email(user_mail, "Companies Generated", html_body)
 
+    product_item = db.query(ProductDetails).filter(ProductDetails.product_id == request.product_id).first()
+    product_item.preloading_status = False
+    db.commit()
+
     return potential_dms
 
 # @app.post("/potential-decision-makers")
@@ -768,17 +786,27 @@ def get_potential_decision_makers(request: DecisionMakerRequest):
     
     print("Decision makers details fetched for ", comp_name)
 
-    prompt = (
-                f"Company: {comp_name}\n"
-                f"Domain: {domain}\n"
-                f"Domain Docs: {domain_docs}\n"
-                f"LinkedIn Profiles: {scrapped_docs}\n\n"
-                "Task:\n"
-                "1. Identify the top decision maker from the LinkedIn profiles using this hierarchy: CEO/CFO/COO > President/VP > Director > Department Head. Exclude technical roles.\n"
-                "2. Validate the domain by comparing it with keywords in the Domain Docs. If there's a mismatch, extract the dominant industry; if unclear, retain the original.\n"
-                "3. Return a JSON object where the key is the person's name (with the value being their role) and include a key 'domain' with the validated (or original) domain.\n"
-                "Output only the JSON, with no additional text."
-            )
+    prompt = f"""
+                Given:  
+                - Company: {comp_name}  
+                - Initial Domain Claim: {domain}  
+                - Domain Validation Documents: {domain_docs}  
+                - LinkedIn Profiles: {scrapped_docs}  
+                Execute:  
+                1. **Identify Decision Makers**  
+                - Select 1 profile with highest business decision authority using hierarchy:  
+                    CEO/CFO/COO > President/VP > Director > Department Head  
+                - Exclude technical/operational roles (e.g., IT Manager, HR Lead)  
+                2. **Validate/Correct Domain**  
+                - Compare {domain} with keywords in {domain_docs}  
+                - If mismatch: Extract dominant industry from documents  
+                - If unclear: Retain original {domain}  
+                3. **Output Fields**
+                - Get the Name and Role of the identified person
+                - Replace them in the output json
+                Output **ONLY** this JSON ( Replace with person's name and title in the respective field ):  
+                ( Provide person name as the key and role as the value in the JSON, also add a key called domain with value as the validated domain or original domain. )
+                ( Do not include any additional text or content in the output )"""
 
     payload = {
         "model": "sonar-reasoning-pro",
@@ -867,6 +895,21 @@ def get_potential_decision_makers(request: DecisionMakerRequest):
                 print("Appended")
             
     return company
+
+
+@app.get("/product_loading_status")
+def get_product_loading_status(user_id: str, product_id: str, db: Session = Depends(get_db)):
+    product = db.query(ProductDetails).filter(ProductDetails.product_id == product_id, ProductDetails.user_id == user_id).first()
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+    
+    while product.preloading_status == True:
+        time.sleep(2)
+        product = db.query(ProductDetails).filter(ProductDetails.product_id == product_id, ProductDetails.user_id == user_id).first()
+
+    else:
+        return {"preloading_status": product.preloading_status}
+
 
 @app.post("/email-proposal")
 def get_email_proposal(request: EmailProposalRequest):
@@ -1979,23 +2022,11 @@ def get_existing_customers(product_id: str, user_id: str, db: Session = Depends(
     if not product:
         raise HTTPException(status_code=404, detail="Product not found or you do not have permission to view this product")
 
-    # Fetch the company names whose decision makers are interested in the product
-    interested_companies = db.query(EmailStatus.company_name).filter(
-        EmailStatus.product_id == product_id,
-        EmailStatus.status == "Interested"
-    ).distinct().all()
-
-    # Extract company names from the query result
-    company_names = [company[0] for company in interested_companies]
-
-    # update existing_customers field in the product details with company names
-    product.existing_customers = company_names
-    db.commit()
-
     # return the updated product details
     return {
         "product_id": product.product_id,
         "product_name": product.product_name,
+        "preloading_status": product.preloading_status,
         "existing_customers": product.existing_customers,
         "product_description": product.product_description,
         "target_min_emp_count": product.target_min_emp_count,
@@ -2262,13 +2293,13 @@ def subscribe_user(request: SubscriptionRequest, user_id: str, db: Session = Dep
     db.commit()
     return {
         "message": "Subscription initiated successfully",
-        "subscription_id": new_subscription.id,
-        "order_id": razorpay_order["id"],
+        # "order_id": razorpay_order["order_id"],
+        "subscription_id": razorpay_order["id"],
         "amount": razorpay_order["amount"],
         "currency": razorpay_order["currency"]
     }
 
-@app.post("/payment-success/")
+@app.post("/payment-success")
 def payment_success(payment: PaymentSuccess, db: Session = Depends(get_db)):
     # Verify the payment signature
     params_dict = {
@@ -2292,6 +2323,18 @@ def payment_success(payment: PaymentSuccess, db: Session = Depends(get_db)):
     subscription.status = "Active"
     db.commit()
     return {"message": "Payment verified and subscription activated"}
+
+@app.post("/payment-failure")
+def payment_failure(payment: PaymentFailure, db: Session = Depends(get_db)):
+    # Update the subscription status
+    subscription = db.query(Subscription).filter(Subscription.id == payment.order_id).first()
+    if not subscription:
+        raise HTTPException(status_code=404, detail="Subscription not found")
+
+    subscription.status = "Failed"
+    db.commit()
+    return {"message": "Payment failed and subscription updated"}
+
 
 @app.put("/cancel_subscription/{subscription_id}")
 def cancel_subscription(subscription_id: str, user_id: str, db: Session = Depends(get_db)):

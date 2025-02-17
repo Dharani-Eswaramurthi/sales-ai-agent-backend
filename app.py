@@ -641,7 +641,7 @@ Ensure that the output strictly adheres to this format and includes only compani
             print("Req", existing_customers)
             ref_request = DecisionMakerRequest(company_name=comp_name, domain_name=domain, industry=industry)
             potential_dm = get_potential_decision_makers(request=ref_request)
-            if potential_dm['decision_maker_mail']:
+            if potential_dm['decision_maker_email']:
                 potential_dm['status'] = "Decision Maker Found"
                 potential_dms.append(potential_dm)
                 if len(potential_dms) == request.limit:
@@ -836,7 +836,7 @@ def get_potential_decision_makers(request: DecisionMakerRequest):
 
     print("Decision makers found and formatted for ", comp_name,"and they are", api_response)
 
-    company = {'name': comp_name, 'decision_maker_name': None, 'decision_maker_mail': None, 'decision_maker_position': None, 'linkedin_url': None, 'domain': api_response['domain'], 'industry': request.industry}
+    company = {'name': comp_name, 'decision_maker_name': None, 'decision_maker_email': None, 'decision_maker_position': None, 'linkedin_url': None, 'domain': api_response['domain'], 'industry': request.industry}
 
     dm_names = []
     dm_positions = []
@@ -872,7 +872,7 @@ def get_potential_decision_makers(request: DecisionMakerRequest):
                     company['linkedin_url'] = linkedin_url[0]['url']
                 else:
                     company['linkedin_url'] = f'https://linkedin.com/pub/dir/{first_name}/{last_name}'
-                company['decision_maker_mail'] = valid_email
+                company['decision_maker_email'] = valid_email
                 company['status'] = status
                 break
             else:
@@ -886,7 +886,7 @@ def get_potential_decision_makers(request: DecisionMakerRequest):
                 else:
                     linkedin_urls.append(f'https://linkedin.com/pub/dir/{first_name}/{last_name}')
                     company['linkedin_url'] = linkedin_urls
-                company['decision_maker_mail'] = None
+                company['decision_maker_email'] = None
                 dm_names.append(key)
                 company['decision_maker'] = dm_names
                 dm_positions.append(value)

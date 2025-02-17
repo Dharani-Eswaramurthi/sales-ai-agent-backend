@@ -254,6 +254,8 @@ class ProductRequest(BaseModel):
     target_max_emp_count: Optional[int] = None
     target_industries: List[str] = None
     target_geo_loc: List[str] = None
+    sender_position: Optional[str] = None
+    sender_company: Optional[str] = None
     target_business_model: List[str] = None
     addressing_pain_points: List[str] = None
     limit: int = 5
@@ -566,6 +568,7 @@ def get_potential_companies(request: ProductRequest, db: Session = Depends(get_d
         raise HTTPException(status_code=500, detail="API Key not configured")
     
     existing_customers = request.existing_customers
+    print("Starting potential companies generation")
     potential_dms = []
 
     db = SessionLocal()
@@ -624,6 +627,7 @@ Ensure that the output strictly adheres to this format and includes only compani
             )
             data = response.json()
             usage = data.get("usage", {})
+            print("Potential companies generated")
             print(f"Input tokens: {usage.get('prompt_tokens', 'N/A') * 0.0000002}")
             print(f"Output tokens: {usage.get('completion_tokens', 'N/A') * 0.0000002}")
             print(f"Total tokens: {usage.get('total_tokens', 'N/A')}")
@@ -632,6 +636,10 @@ Ensure that the output strictly adheres to this format and includes only compani
             raise HTTPException(status_code=500, detail=f"API request failed: {str(e)}")
 
         formatted_response = format_response(response.json())
+
+        print("Getting potential Decision Makers")
+
+        i=0
 
         for company in formatted_response:
             comp_name = company['name']
@@ -643,8 +651,26 @@ Ensure that the output strictly adheres to this format and includes only compani
             potential_dm = get_potential_decision_makers(request=ref_request)
             if potential_dm['decision_maker_email']:
                 potential_dm['status'] = "Decision Maker Found"
+                curr_user = db.query(User).filter(User.id == request.user_id).first()
+                email_proposal_req = EmailProposalRequest(
+                    product_description=request.product_description,
+                    company_name=comp_name,
+                    decision_maker=potential_dm['decision_maker_name'],
+                    decision_maker_position=potential_dm['decision_maker_position'],
+                    sender_name=curr_user.first_name + ' ' + curr_user.last_name,
+                    sender_position=request.sender_position,
+                    sender_company=request.sender_company
+                )
+                generated_proposal = get_email_proposal(email_proposal_req)
+                print(f"{i} Generated Proposal: ", generated_proposal)
+                i+=1
+                potential_dm['status'] = "Mail Drafted"
+                potential_dm['personality_type'] = generated_proposal['personality_type']
+                potential_dm['subject'] = generated_proposal['subject']
+                potential_dm['body'] = generated_proposal['body']
                 potential_dms.append(potential_dm)
                 if len(potential_dms) == request.limit:
+                    print("Potential companies fetched and formatted: ", potential_dms)
                     break
 
     print("Potential companies fetched and formatted: ", potential_dms)
@@ -726,6 +752,7 @@ Ensure that the output strictly adheres to this format and includes only compani
     product_item.preloading_status = False
     db.commit()
 
+   
     return potential_dms
 
 # @app.post("/potential-decision-makers")
@@ -747,11 +774,11 @@ def get_potential_decision_makers(request: DecisionMakerRequest):
 
     domain_docs = [item.get('url').split('//')[-1].split('/')[0].replace('www.', '') for item in result]
 
-    print("DOMAIN DOCS: ", domain_docs)
+    # print("DOMAIN DOCS: ", domain_docs)
 
     # domain may be in the form of https://www.example.com or https://example.com
     domain = request.domain_name
-    print(domain_docs)
+    # print(domain_docs)
 
     positions = ['CEO', 'Founder']
     results = []
@@ -782,7 +809,7 @@ def get_potential_decision_makers(request: DecisionMakerRequest):
     if not scrapped_docs:
         raise HTTPException(status_code=404, detail="No decision makers found for the company")
 
-    print("Scrapped CEO, Co-CEO and VP of the company ", comp_name, " from LinkedIn: ", scrapped_docs)
+    # print("Scrapped CEO, Co-CEO and VP of the company ", comp_name, " from LinkedIn: ", scrapped_docs)
     
     print("Decision makers details fetched for ", comp_name)
 
@@ -834,7 +861,7 @@ def get_potential_decision_makers(request: DecisionMakerRequest):
     
     api_response = format_response(response.json())
 
-    print("Decision makers found and formatted for ", comp_name,"and they are", api_response)
+    print("Decision makers found and formatted for ", comp_name)
 
     company = {'name': comp_name, 'decision_maker_name': None, 'decision_maker_email': None, 'decision_maker_position': None, 'linkedin_url': None, 'domain': api_response['domain'], 'industry': request.industry}
 
@@ -860,14 +887,14 @@ def get_potential_decision_makers(request: DecisionMakerRequest):
                 first_name = key
 
             ref = find_valid_email(first_name, last_name, company['domain'])
-            print(ref)
+            # print(ref)
             valid_email, status = ref
             print("Valid email:", valid_email)
             if valid_email:
                 linkedin_url_query = f"{key} {value} of {request.company_name} site:linkedin.com"
                 linkedin_url = google_search(linkedin_url_query, limit=1)
                 # linkedin_url = google_search(api_key, search_engine_id, linkedin_url_query, limit=1)
-                print("Linkedin URL: ", linkedin_url)
+                # print("Linkedin URL: ", linkedin_url)
                 if len(linkedin_url) > 0:                  
                     company['linkedin_url'] = linkedin_url[0]['url']
                 else:
@@ -878,7 +905,7 @@ def get_potential_decision_makers(request: DecisionMakerRequest):
             else:
                 linkedin_url = google_search(f"{key} {value} of {request.company_name} site:linkedin.com", limit=1)
                 # linkedin_url = google_search(api_key, search_engine_id, f"{key} {value} of {request.company_name} site:linkedin.com", limit=1)
-                print("Linkedin URL: ", linkedin_url)
+                # print("Linkedin URL: ", linkedin_url)
                 # find for a key in linkedin_url
                 if len(linkedin_url) > 0:                  
                     company['linkedin_url'] = linkedin_url[0]['url']
@@ -911,7 +938,7 @@ def get_product_loading_status(user_id: str, product_id: str, db: Session = Depe
         return {"preloading_status": product.preloading_status}
 
 
-@app.post("/email-proposal")
+# @app.post("/email-proposal")
 def get_email_proposal(request: EmailProposalRequest):
     if not API_KEY:
         raise HTTPException(status_code=500, detail="API Key not configured")
@@ -2190,6 +2217,9 @@ def add_generated_companies(request: GeneratedCompanyRequest, user_id: str, db: 
                 product_id=request.product_id,
                 company_name=company["name"],
                 industry=company.get("industry"),
+                subject=company.get("subject"),  # Allow null
+                body=company.get("body"),  # Allow null
+                personality_type=company.get("personality_type"),  # Allow null
                 domain=company.get("domain"),
                 status=company.get("status"),
                 decision_maker_name=company.get("decision_maker_name"),  # Allow null
@@ -2199,7 +2229,7 @@ def add_generated_companies(request: GeneratedCompanyRequest, user_id: str, db: 
             )
             db.add(new_company)
         db.commit()
-        return {"message": "Generated companies added successfully"}
+        return db.query(GeneratedCompany).filter(GeneratedCompany.user_id == user_id, GeneratedCompany.product_id == request.product_id).all()
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Error adding generated companies: {e}")
@@ -2231,7 +2261,7 @@ def get_generated_companies(user_id: str, product_id: str, db: Session = Depends
     finally:
         db.close()
 
-@app.put("/update_generated_company_status/")
+# @app.put("/update_generated_company_status/")
 def update_generated_company_status(request: GeneratedCompanyUpdateRequest, user_id: str, db: Session = Depends(get_db)):
     company = db.query(GeneratedCompany).filter(GeneratedCompany.id == request.company_id, GeneratedCompany.user_id == user_id).first()
     if not company:

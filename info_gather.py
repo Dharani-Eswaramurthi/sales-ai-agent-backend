@@ -10,7 +10,7 @@ def chat_completion(messages, tokens):
     url = "https://api.perplexity.ai/chat/completions"  # Replace with the correct Perplexity chat completions endpoint
 
     payload = {
-            "model": "llama-3.1-sonar-large-128k-online",
+            "model": "sonar",
             "messages": messages,
             "max_tokens": tokens,
             "temperature": 0,

@@ -27,7 +27,7 @@ def google_search(query, limit):
     response = requests.get(url, headers=headers, params=querystring)
     print(response.json().keys())
 
-    # print(response.json()['message'])
+    print(response.json())
     return response.json()['results'][:limit]
 
 # Example usage

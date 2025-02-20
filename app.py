@@ -607,7 +607,7 @@ Employ a chain-of-thought method to thoroughly analyze the provided information 
 - **Web Browsing**: Utilize official company websites, reputable business directories, and recent news articles to gather current and precise information. Provide companies that have a valid domain.
 - **Exclusions**: For the list of potential customers, strictly exclude companies listed under 'Existing Customers'.
 
-### Output Format: ( provide only the JSON with the below keys alone as output without any additional text or content )
+### Output Format: ( provide only a single JSON with the below keys alone as output without any additional text or content )
 - name: Company name
 - industry: Industry type
 - domain: Company's domain name (ensure accuracy; exclude 'www.', 'http://', or 'https://')
@@ -616,7 +616,7 @@ Ensure that the output strictly adheres to this format and includes only compani
 """
 
             payload = {
-                "model": "llama-3.1-sonar-large-128k-online",
+                "model": "sonar",
                 "messages": [{"role": "user", "content": prompt}],
                 "max_tokens": 300,
             }
@@ -625,17 +625,20 @@ Ensure that the output strictly adheres to this format and includes only compani
                 headers={"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"},
                 json=payload,
             )
+            response.raise_for_status()
             data = response.json()
             usage = data.get("usage", {})
             print("Potential companies generated")
             print(f"Input tokens: {usage.get('prompt_tokens', 'N/A') * 0.0000002}")
             print(f"Output tokens: {usage.get('completion_tokens', 'N/A') * 0.0000002}")
             print(f"Total tokens: {usage.get('total_tokens', 'N/A')}")
-            response.raise_for_status()
         except requests.exceptions.RequestException as e:
             raise HTTPException(status_code=500, detail=f"API request failed: {str(e)}")
 
-        formatted_response = format_response(response.json())
+        if not data or "choices" not in data or not data["choices"]:
+            raise HTTPException(status_code=500, detail="Invalid response from API")
+
+        formatted_response = format_response(data)
 
         print("Getting potential Decision Makers")
 

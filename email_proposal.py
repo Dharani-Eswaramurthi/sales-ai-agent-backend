@@ -106,7 +106,7 @@ class EmailProposalSystem:
         distances, indices = self.index.search(np.array([query_embed]), 1)
         return self.template_list[indices[0][0]]
 
-    def generate_email(self, query, situation, **kwargs):
+    def generate_email(self, company_name, decision_maker, decision_maker_posiiton, query, situation, **kwargs):
         """Generate personalized email using template and context"""
         # Check if FAISS index is available
         if not self.index:
@@ -157,6 +157,9 @@ class EmailProposalSystem:
         - Product: {kwargs.get('product_description', '')}
         - Company Context: {company_context}
         - Decision Maker Profile: {decision_maker_context}
+        - Decision Maker Name: {decision_maker}
+        - Decision Maker Position: {decision_maker_posiiton}
+        - Decision Maker Company Name: {company_name}
         - Synergy Points: {synergy_context}
         - Sender Name: {kwargs.get('sender_name', '')}
         - Sender Position: {kwargs.get('sender_position', '')}

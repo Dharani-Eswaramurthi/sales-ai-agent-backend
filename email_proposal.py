@@ -112,7 +112,7 @@ class EmailProposalSystem:
         if not self.index:
             return {
                 "subject": "No Templates Available",
-                "body": "No templates are available to generate an email."
+                "body": "No templates are available to generate an email." 
             }
 
         # Retrieve template

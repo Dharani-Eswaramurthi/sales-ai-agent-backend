@@ -1,20 +1,24 @@
-import requests
-from bs4 import BeautifulSoup
+import os
+from base64 import b64decode
+from Crypto.Cipher import AES
+from Crypto.Util.Padding import unpad
 
-search_query = "Python programming tutorials"
-url = f"https://www.google.com/search?q={search_query}"
+def decrypt_password(encrypted_password: str) -> str:
+    secret_key = os.environ.get("ENCRYPTION_KEY")
+    iv = os.environ.get("ENCRYPTION_IV")
+    print("SECRET KEY", secret_key)
+    print("IV", iv)
+    if not secret_key or not iv:
+        raise ValueError("ENCRYPTION_KEY or ENCRYPTION_IV environment variable is not set")
+    
+    
+    ciphertext = b64decode(encrypted_password)
+    derived_key = b64decode(secret_key)
+    cipher = AES.new(derived_key, AES.MODE_CBC, iv.encode('utf-8'))
+    decrypted_data = cipher.decrypt(ciphertext)
+    return unpad(decrypted_data, 16).decode("utf-8")
 
-headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3'}
-response = requests.get(url, headers=headers)
-
-soup = BeautifulSoup(response.text, 'html.parser')
-search_results = soup.find_all('a', href=True)
-
-for link in search_results:
-    href = link['href']
-    if href.startswith('/url?q='):
-        title = link.get_text()
-        url = href.split('&')[0].replace('/url?q=', '')
-        print(f"Title: {title}")
-        print(f"URL: {url}")
-        print("-" * 80)
+# Example usage
+encrypted_password = "XMupu5u4sNSL3+UyfXPb4Q=="
+decrypted_password = decrypt_password(encrypted_password)
+print(decrypted_password)

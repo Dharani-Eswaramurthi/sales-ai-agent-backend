@@ -35,6 +35,7 @@ import razorpay
 import smtplib
 #import time module
 import time
+import urllib.parse
 
 # Load environment variables from .env file
 load_dotenv()
@@ -357,8 +358,12 @@ def get_db():
 def decrypt_password(encrypted_password: str) -> str:
     secret_key = os.environ.get("ENCRYPTION_KEY")
     iv = os.environ.get("ENCRYPTION_IV")
+    print("SECRET KEY", secret_key)
+    print("IV", iv)
     if not secret_key or not iv:
         raise ValueError("ENCRYPTION_KEY or ENCRYPTION_IV environment variable is not set")
+    
+    print("ENCRYPTED PASSWORD from func", encrypted_password)
     
     ciphertext = b64decode(encrypted_password)
     derived_key = b64decode(secret_key)
@@ -402,7 +407,6 @@ def identify_smtp_server(email: str) -> tuple:
     
     # If no known key is found in the MX records, return a default SMTP server.
     return ("smtpout.secureserver.net", 587)
-
 
 @app.post("/register/")
 def register_user(user: UserCreate, db: Session = Depends(get_db)):
@@ -1061,12 +1065,14 @@ async def send_email(email: EmailData, user_id: str, user_email: str, encrypted_
     sender_email = user_email
     product_id = email.product_id
 
+    encrypted_pass = urllib.parse.unquote(encrypted_password)
+
     # Debugging: Print the encrypted password received
-    print(f"Received Encrypted Password: {encrypted_password}")
+    print(f"Received Encrypted Password: {encrypted_pass}")
 
     # Decrypt the password
     try:
-        decrypted_password = decrypt_password(encrypted_password)
+        decrypted_password = decrypt_password(encrypted_pass)
         print(f"Decrypted Password: {decrypted_password}")  # Debugging: Print the decrypted password
     except Exception as e:
         print(f"Decryption Error: {e}")  # Debugging: Print the decryption error
@@ -1104,7 +1110,8 @@ async def send_email(email: EmailData, user_id: str, user_email: str, encrypted_
         db.close()
 
     # Identify SMTP server
-    smtp_server = identify_smtp_server(user_email)
+    smtp_server, smtp_port = identify_smtp_server(user_email)
+    print(f"Identified SMTP Server: {smtp_server}, Port: {smtp_port}")  # Debugging: Print the identified SMTP server
 
     # Email content with tracking pixel
     html_body = f"""
@@ -1162,7 +1169,6 @@ async def send_email(email: EmailData, user_id: str, user_email: str, encrypted_
 </html>
 """
 
-
     # Send email
     msg = MIMEMultipart()
     msg['From'] = user_email
@@ -1171,7 +1177,7 @@ async def send_email(email: EmailData, user_id: str, user_email: str, encrypted_
     msg.attach(MIMEText(html_body, 'html'))
 
     try:
-        with smtplib.SMTP(smtp_server, SMTP_PORT) as server:
+        with smtplib.SMTP(smtp_server, smtp_port) as server:
             server.ehlo()
             server.starttls()
             server.ehlo()
@@ -2264,7 +2270,7 @@ def get_generated_companies(user_id: str, product_id: str, db: Session = Depends
     finally:
         db.close()
 
-# @app.put("/update_generated_company_status/")
+@app.put("/update_generated_company_status/")
 def update_generated_company_status(request: GeneratedCompanyUpdateRequest, user_id: str, db: Session = Depends(get_db)):
     company = db.query(GeneratedCompany).filter(GeneratedCompany.id == request.company_id, GeneratedCompany.user_id == user_id).first()
     if not company:

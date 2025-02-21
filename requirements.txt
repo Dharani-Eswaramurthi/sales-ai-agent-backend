@@ -18,3 +18,5 @@ passlib
 sentence-transformers
 faiss-cpu
 razorpay
+asyncpg
+httpx

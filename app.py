@@ -36,6 +36,9 @@ import smtplib
 #import time module
 import time
 import urllib.parse
+import asyncio
+import asyncpg
+import httpx
 
 # Load environment variables from .env file
 load_dotenv()
@@ -103,6 +106,7 @@ class EmailStatus(Base):
     email_body = Column(String, nullable=False)
     email_type = Column(String) 
     status = Column(String, default="Not Responded")
+    open_count = Column(Integer, default=0)
     date_sent = Column(TIMESTAMP, default=datetime.utcnow)
     date_opened = Column(TIMESTAMP)
     sender_name = Column(String, nullable=False)
@@ -121,6 +125,7 @@ class FollowupStatus(Base):
     followup_status = Column(String, nullable=False)
     body = Column(String)
     subject = Column(String)
+    open_count = Column(Integer, default=0)
     followup_sent_count = Column(Integer)
     company_name = Column(String, nullable=False)
     recipient_name = Column(String, nullable=False)
@@ -224,6 +229,7 @@ app.add_middleware(
 class EmailData(BaseModel):
     recipient_name: str
     company_name: str
+    company_id: str
     dm_position: str
     recipient: str
     subject: str
@@ -568,199 +574,285 @@ def get_user(user_id: str, db: Session = Depends(get_db)):
 
 @app.post("/potential-companies")
 def get_potential_companies(request: ProductRequest, db: Session = Depends(get_db)):
-    if not API_KEY:
-        raise HTTPException(status_code=500, detail="API Key not configured")
-    
-    existing_customers = request.existing_customers
-    print("Starting potential companies generation")
-    potential_dms = []
+    try:
+        if not API_KEY:
+            raise HTTPException(status_code=500, detail="API Key not configured")
+        
+        existing_customers = request.existing_customers
+        print("Starting potential companies generation")
+        potential_dms = []
 
-    db = SessionLocal()
-    product_item = db.query(ProductDetails).filter(ProductDetails.product_id == request.product_id).first()
-    if not product_item:
-        raise HTTPException(status_code=404, detail="Product not found")
-    
-    product_item.preloading_status = True
-    db.commit()
-    
-    while len(potential_dms) < request.limit:
-        try:
-            prompt = f"""
-Given the detailed product information and Ideal Client Profile (ICP) provided below, analyze and identify:
-1. The top {request.limit} companies that demonstrate a strong potential to become customers of {request.product_name}. Each identified company must strictly satisfy the specified target criteria—including employee count, industry, geographical location, and business model—and show clear indicators of being a viable future customer for this product. Exclude any companies listed in the 'Existing Customers' from this list.
-2. Craft the output potential companies with the limit of {request.limit} that are defined as companies with a significant market presence, a long track record of success, and stable growth. These companies should also meet the target criteria for employee count, industry, geographical location, and business model.
+        db = SessionLocal()
+        product_item = db.query(ProductDetails).filter(ProductDetails.product_id == request.product_id).first()
+        if not product_item:
+            raise HTTPException(status_code=404, detail="Product not found")
+        
+        product_item.preloading_status = True
+        db.commit()
+        
+        while len(potential_dms) < request.limit:
+            try:
+                prompt = f"""
+    Given the detailed product information and Ideal Client Profile (ICP) provided below, analyze and identify:
+    1. The top {request.limit} companies that demonstrate a strong potential to become customers of {request.product_name}. Each identified company must strictly satisfy the specified target criteria—including employee count, industry, geographical location, and business model—and show clear indicators of being a viable future customer for this product. Exclude any companies listed in the 'Existing Customers' from this list.
+    2. Craft the output potential companies with the limit of {request.limit} that are defined as companies with a significant market presence, a long track record of success, and stable growth. These companies should also meet the target criteria for employee count, industry, geographical location, and business model.
 
-### Product Information:
-- **Product Name**: {request.product_name} ( This is the name of the product )
-- **Product Description**: {request.product_description or 'N/A'} ( Thsi is what the product does )
-- **Existing Customers**: {', '.join(existing_customers) if existing_customers else 'N/A'} (  These are the companies that are already maybe using the product )
-- **Target Industries**: {', '.join(request.target_industries) if request.target_industries else 'N/A'} ( These are the industries that the product is targeting, so Identify companies in these industries )
-- **Target Employee Count**: {request.target_min_emp_count or 'N/A'} to {request.target_max_emp_count or 'N/A'} ( These is the range of employees in the company, so identify companies in this employee count range )
-- **Target Geographical Locations**: {', '.join(request.target_geo_loc) if request.target_geo_loc else 'N/A'} ( These are the locations where the companies should be located, so identify companies with mix of these locations )
-- **Target Business Models**: {', '.join(request.target_business_model) if request.target_business_model else 'N/A'} ( These are the business models that the product is targeting, so identify companies with these business models )
-- **Addressing Pain Points**: {', '.join(request.addressing_pain_points) if request.addressing_pain_points else 'N/A'} ( These are the pain points that the product is addressing, so identify companies with these pain points )
+    ### Product Information:
+    - **Product Name**: {request.product_name} ( This is the name of the product )
+    - **Product Description**: {request.product_description or 'N/A'} ( Thsi is what the product does )
+    - **Existing Customers**: {', '.join(existing_customers) if existing_customers else 'N/A'} (  These are the companies that are already maybe using the product )
+    - **Target Industries**: {', '.join(request.target_industries) if request.target_industries else 'N/A'} ( These are the industries that the product is targeting, so Identify companies in these industries )
+    - **Target Employee Count**: {request.target_min_emp_count or 'N/A'} to {request.target_max_emp_count or 'N/A'} ( These is the range of employees in the company, so identify companies in this employee count range )
+    - **Target Geographical Locations**: {', '.join(request.target_geo_loc) if request.target_geo_loc else 'N/A'} ( These are the locations where the companies should be located, so identify companies with mix of these locations )
+    - **Target Business Models**: {', '.join(request.target_business_model) if request.target_business_model else 'N/A'} ( These are the business models that the product is targeting, so identify companies with these business models )
+    - **Addressing Pain Points**: {', '.join(request.addressing_pain_points) if request.addressing_pain_points else 'N/A'} ( These are the pain points that the product is addressing, so identify companies with these pain points )
 
-### Chain-of-Thought Instructions (Internal Use Only):
-Employ a chain-of-thought method to thoroughly analyze the provided information and determine:
-- The companies with strong potential to become customers of {request.product_name}, ensuring they meet all specified criteria and strictly are not part of Existing Customers: {existing_customers}.
-- The companies that are well established customers, characterized by a significant market presence, long operational history, and stable growth, while also meeting the target criteria.
-**Do not include any internal reasoning or chain-of-thought details in the final output.**
+    ### Chain-of-Thought Instructions (Internal Use Only):
+    Employ a chain-of-thought method to thoroughly analyze the provided information and determine:
+    - The companies with strong potential to become customers of {request.product_name}, ensuring they meet all specified criteria and strictly are not part of Existing Customers: {existing_customers}.
+    - The companies that are well established customers, characterized by a significant market presence, long operational history, and stable growth, while also meeting the target criteria.
+    **Do not include any internal reasoning or chain-of-thought details in the final output.**
 
-### Instructions:
-- **Data Accuracy**: Ensure all company details, especially domain names, are accurate and verified through reliable sources. Avoid assumptions or unverifiable information.
-- **Web Browsing**: Utilize official company websites, reputable business directories, and recent news articles to gather current and precise information. Provide companies that have a valid domain.
-- **Exclusions**: For the list of potential customers, strictly exclude companies listed under 'Existing Customers'.
+    ### Instructions:
+    - **Data Accuracy**: Ensure all company details, especially domain names, are accurate and verified through reliable sources. Avoid assumptions or unverifiable information.
+    - **Web Browsing**: Utilize official company websites, reputable business directories, and recent news articles to gather current and precise information. Provide companies that have a valid domain.
+    - **Exclusions**: For the list of potential customers, strictly exclude companies listed under 'Existing Customers'.
 
-### Output Format: ( provide only a single JSON with the below keys alone as output without any additional text or content )
-- name: Company name
-- industry: Industry type
-- domain: Company's domain name (ensure accuracy; exclude 'www.', 'http://', or 'https://')
+    ### Output Format: ( provide only a single JSON with the below keys alone as output without any additional text or content )
+    - name: Company name
+    - industry: Industry type
+    - domain: Company's domain name (ensure accuracy; exclude 'www.', 'http://', or 'https://')
 
-Ensure that the output strictly adheres to this format and includes only companies that meet all specified criteria. If certain details cannot be verified, omit those companies from the list. Provide only the JSON as output without any additional text or content.
-"""
+    Ensure that the output strictly adheres to this format and includes only companies that meet all specified criteria. If certain details cannot be verified, omit those companies from the list. Provide only the JSON as output without any additional text or content.
+    """
 
-            payload = {
-                "model": "sonar",
-                "messages": [{"role": "user", "content": prompt}],
-                "max_tokens": 300,
-            }
-            response = requests.post(
-                BASE_URL,
-                headers={"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"},
-                json=payload,
-            )
-            response.raise_for_status()
-            data = response.json()
-            usage = data.get("usage", {})
-            print("Potential companies generated")
-            print(f"Input tokens: {usage.get('prompt_tokens', 'N/A') * 0.0000002}")
-            print(f"Output tokens: {usage.get('completion_tokens', 'N/A') * 0.0000002}")
-            print(f"Total tokens: {usage.get('total_tokens', 'N/A')}")
-        except requests.exceptions.RequestException as e:
-            raise HTTPException(status_code=500, detail=f"API request failed: {str(e)}")
-
-        if not data or "choices" not in data or not data["choices"]:
-            raise HTTPException(status_code=500, detail="Invalid response from API")
-
-        formatted_response = format_response(data)
-
-        print("Getting potential Decision Makers")
-
-        i=0
-
-        for company in formatted_response:
-            comp_name = company['name']
-            industry = company['industry']
-            domain = company['domain']
-            existing_customers.append(comp_name)
-            print("Req", existing_customers)
-            ref_request = DecisionMakerRequest(company_name=comp_name, domain_name=domain, industry=industry)
-            potential_dm = get_potential_decision_makers(request=ref_request)
-            if potential_dm['decision_maker_email']:
-                potential_dm['status'] = "Decision Maker Found"
-                curr_user = db.query(User).filter(User.id == request.user_id).first()
-                email_proposal_req = EmailProposalRequest(
-                    product_description=request.product_description,
-                    company_name=comp_name,
-                    decision_maker=potential_dm['decision_maker_name'],
-                    decision_maker_position=potential_dm['decision_maker_position'],
-                    sender_name=curr_user.first_name + ' ' + curr_user.last_name,
-                    sender_position=request.sender_position,
-                    sender_company=request.sender_company
+                payload = {
+                    "model": "sonar",
+                    "messages": [{"role": "user", "content": prompt}],
+                    "max_tokens": 300,
+                }
+                response = requests.post(
+                    BASE_URL,
+                    headers={"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"},
+                    json=payload,
                 )
-                generated_proposal = get_email_proposal(email_proposal_req)
-                print(f"{i} Generated Proposal: ", generated_proposal)
-                i+=1
-                potential_dm['status'] = "Mail Drafted"
-                potential_dm['personality_type'] = generated_proposal['personality_type']
-                potential_dm['subject'] = generated_proposal['subject']
-                potential_dm['body'] = generated_proposal['body']
-                potential_dms.append(potential_dm)
-                if len(potential_dms) == request.limit:
-                    print("Potential companies fetched and formatted: ", potential_dms)
-                    break
+                response.raise_for_status()
+                data = response.json()
+                usage = data.get("usage", {})
+                print("Potential companies generated")
+                print(f"Input tokens: {usage.get('prompt_tokens', 'N/A') * 0.0000002}")
+                print(f"Output tokens: {usage.get('completion_tokens', 'N/A') * 0.0000002}")
+                print(f"Total tokens: {usage.get('total_tokens', 'N/A')}")
+            except requests.exceptions.RequestException as e:
+                raise HTTPException(status_code=500, detail=f"API request failed: {str(e)}")
 
-    print("Potential companies fetched and formatted: ", potential_dms)
+            if not data or "choices" not in data or not data["choices"]:
+                raise HTTPException(status_code=500, detail="Invalid response from API")
 
-    req = GeneratedCompanyRequest(product_id=request.product_id, companies=potential_dms)
+            formatted_response = format_response(data)
 
-    add_generated_company = add_generated_companies(req, request.user_id)
+            print("Getting potential Decision Makers")
 
-    # send a notification message telling the user that the companies have been generated
-    db = SessionLocal()
-    user_mail = db.query(User).filter(User.id == request.user_id).first().email
-    smtp_server, smtp_port = identify_smtp_server(user_mail)
+            i=0
 
-    html_body = f"""<!DOCTYPE html>
-                    <html lang="en">
-                    <head>
-                        <meta charset="UTF-8">
-                        <meta name="viewport" content="width=device-width, initial-scale=1">
-                        <title>Companies Generated</title>
-                    </head>
-                    <body style="background-color: rgb(89,227,167); margin: 0; padding: 20px; font-family: Arial, sans-serif; text-align: center;">
+            for company in formatted_response:
+                comp_name = company['name']
+                industry = company['industry']
+                domain = company['domain']
+                existing_customers.append(comp_name)
+                print("Req", existing_customers)
+                ref_request = DecisionMakerRequest(company_name=comp_name, domain_name=domain, industry=industry)
+                potential_dm = get_potential_decision_makers(request=ref_request)
+                if potential_dm['decision_maker_email']:
+                    potential_dm['status'] = "Decision Maker Found"
+                    curr_user = db.query(User).filter(User.id == request.user_id).first()
+                    email_proposal_req = EmailProposalRequest(
+                        product_description=request.product_description,
+                        company_name=comp_name,
+                        decision_maker=potential_dm['decision_maker_name'],
+                        decision_maker_position=potential_dm['decision_maker_position'],
+                        sender_name=curr_user.first_name + ' ' + curr_user.last_name,
+                        sender_position=request.sender_position,
+                        sender_company=request.sender_company
+                    )
+                    generated_proposal = get_email_proposal(email_proposal_req)
+                    print(f"{i} Generated Proposal: ", generated_proposal)
+                    i+=1
+                    potential_dm['status'] = "Mail Drafted"
+                    potential_dm['personality_type'] = generated_proposal['personality_type']
+                    potential_dm['subject'] = generated_proposal['subject']
+                    potential_dm['body'] = generated_proposal['body']
+                    potential_dms.append(potential_dm)
+                    if len(potential_dms) == request.limit:
+                        print("Potential companies fetched and formatted: ", potential_dms)
+                        break
 
-                        <!-- Wrapper Table to Center Everything -->
-                        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
-                            <tr>
-                                <td align="center">
+        print("Potential companies fetched and formatted: ", potential_dms)
 
-                                    <!-- Logo Row (Placed Above the Container) -->
-                                    <table role="presentation" width="360px" cellspacing="0" cellpadding="0" border="0">
-                                        <tr>
-                                            <td align="left" style="padding-bottom: 15px;">
-                                                <img src="https://twingenfuelfiles.blob.core.windows.net/lead-stream/heuro.png" alt="Heuro Logo" width="80">
-                                            </td>
-                                        </tr>
-                                    </table>
+        req = GeneratedCompanyRequest(product_id=request.product_id, companies=potential_dms)
 
-                                    <!-- Email Container -->
-                                    <table role="presentation" width="360px" cellspacing="0" cellpadding="0" border="0" style="background-color: #ffffff; border-radius: 10px; box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1); padding: 20px; text-align: center;">
-                                        
-                                        <!-- Title -->
-                                        <tr>
-                                            <td style="font-size: 22px; font-weight: bold; color: #2c3e50; padding-bottom: 10px;">
-                                                Companies Generated
-                                            </td>
-                                        </tr>
+        add_generated_company = add_generated_companies(req, request.user_id)
 
-                                        <!-- Message -->
-                                        <tr>
-                                            <td style="font-size: 14px; color: #7f8c8d; padding-bottom: 20px;">
-                                                The potential companies have been generated successfully. Please check your dashboard for more details.
-                                            </td>
-                                        </tr>
-                                        <tr>
-                                            <td style="font-size: 14px; color: #7f8c8d; padding-bottom: 20px;">
-                                                <a href="https://leadagent.in/generate" target="_blank" style="color: #4ca1af; text-decoration: none;">Leadagent</a>
-                                            </td>
-                                        </tr>
+        # send a notification message telling the user that the companies have been generated
+        db = SessionLocal()
+        user_mail = db.query(User).filter(User.id == request.user_id).first().email
+        smtp_server, smtp_port = identify_smtp_server(user_mail)
 
-                                        <!-- Footer -->
-                                        <tr>
+        html_body = f"""<!DOCTYPE html>
+                        <html lang="en">
+                        <head>
+                            <meta charset="UTF-8">
+                            <meta name="viewport" content="width=device-width, initial-scale=1">
+                            <title>Companies Generated</title>
+                        </head>
+                        <body style="background-color: rgb(89,227,167); margin: 0; padding: 20px; font-family: Arial, sans-serif; text-align: center;">
+
+                            <!-- Wrapper Table to Center Everything -->
+                            <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+                                <tr>
+                                    <td align="center">
+
+                                        <!-- Logo Row (Placed Above the Container) -->
+                                        <table role="presentation" width="360px" cellspacing="0" cellpadding="0" border="0">
+                                            <tr>
+                                                <td align="left" style="padding-bottom: 15px;">
+                                                    <img src="https://twingenfuelfiles.blob.core.windows.net/lead-stream/heuro.png" alt="Heuro Logo" width="80">
+                                                </td>
+                                            </tr>
+                                        </table>
+
+                                        <!-- Email Container -->
+                                        <table role="presentation" width="360px" cellspacing="0" cellpadding="0" border="0" style="background-color: #ffffff; border-radius: 10px; box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1); padding: 20px; text-align: center;">
+                                            
+                                            <!-- Title -->
+                                            <tr>
+                                                <td style="font-size: 22px; font-weight: bold; color: #2c3e50; padding-bottom: 10px;">
+                                                    Companies Generated
+                                                </td>
+                                            </tr>
+
+                                            <!-- Message -->
+                                            <tr>
+                                                <td style="font-size: 14px; color: #7f8c8d; padding-bottom: 20px;">
+                                                    The potential companies have been generated successfully. Please check your dashboard for more details.
+                                                </td>
+                                            </tr>
+                                            <tr>
+                                                <td style="font-size: 14px; color: #7f8c8d; padding-bottom: 20px;">
+                                                    <a href="https://leadagent.in/generate" target="_blank" style="color: #4ca1af; text-decoration: none;">Leadagent</a>
+                                                </td>
+                                            </tr>
+                                            <!-- Footer -->
+                                            <tr>
                                             <td style="font-size: 12px; color: #95a5a6; padding-top: 20px;">
-                                                Lead Stream is a product of <a href="https://heuro.in" target="_blank" style="color: #4ca1af; text-decoration: none;">heuro.in</a>
+                                                Lead Stream is a product of 
+                                                <a href="https://heuro.in" target="_blank" style="color: #4ca1af; text-decoration: none;">
+                                                heuro.in
+                                                </a>
+                                                <br>
+                                                <a href="tel:+919655612306" style="color: #4ca1af; text-decoration: none;">
+                                                +91 96556 12306
+                                                </a>
+                                                <br>
+                                                <a href="mailto:dharani96556@gmail.com" style="color: #4ca1af; text-decoration: none;">
+                                                dharani96556@gmail.com
+                                                </a>
                                             </td>
-                                        </tr>
+                                            </tr>
 
-                                    </table>
-                                    
-                                </td>
-                            </tr>
-                        </table>
+                                        </table>
+                                        
+                                    </td>
+                                </tr>
+                            </table>
 
-                    </body>
-                    </html>
-                    """
+                        </body>
+                        </html>
+                        """
+        
+        send_notification_email(user_mail, "Companies Generated", html_body)
+
+        product_item = db.query(ProductDetails).filter(ProductDetails.product_id == request.product_id).first()
+        product_item.preloading_status = False
+        db.commit()
+
     
-    send_notification_email(user_mail, "Companies Generated", html_body)
+        return potential_dms
+    
+    except Exception as e:
+        db = SessionLocal()
+        user_mail = db.query(User).filter(User.id == request.user_id).first().email
+        smtp_server, smtp_port = identify_smtp_server(user_mail)
 
-    product_item = db.query(ProductDetails).filter(ProductDetails.product_id == request.product_id).first()
-    product_item.preloading_status = False
-    db.commit()
+        html_body = f"""<!DOCTYPE html>
+                        <html lang="en">
+                        <head>
+                            <meta charset="UTF-8">
+                            <meta name="viewport" content="width=device-width, initial-scale=1">
+                            <title>Error Generating Companies</title>
+                        </head>
+                        <body style="background-color: rgb(89,227,167); margin: 0; padding: 20px; font-family: Arial, sans-serif; text-align: center;">
 
-   
-    return potential_dms
+                            <!-- Wrapper Table to Center Everything -->
+                            <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+                                <tr>
+                                    <td align="center">
+
+                                        <!-- Logo Row (Placed Above the Container) -->
+                                        <table role="presentation" width="360px" cellspacing="0" cellpadding="0" border="0">
+                                            <tr>
+                                                <td align="left" style="padding-bottom: 15px;">
+                                                    <img src="https://twingenfuelfiles.blob.core.windows.net/lead-stream/heuro.png" alt="Heuro Logo" width="80">
+                                                </td>
+                                            </tr>
+                                        </table>
+
+                                        <!-- Email Container -->
+                                        <table role="presentation" width="360px" cellspacing="0" cellpadding="0" border="0" style="background-color: #ffffff; border-radius: 10px; box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1); padding: 20px; text-align: center;">
+                                            
+                                            <!-- Title -->
+                                            <tr>
+                                                <td style="font-size: 22px; font-weight: bold; color: #2c3e50; padding-bottom: 10px;">
+                                                    Error Generating Companies
+                                                </td>
+                                            </tr>
+
+                                            <!-- Message -->
+                                            <tr>
+                                                <td style="font-size: 14px; color: #7f8c8d; padding-bottom: 20px;">
+                                                    There was an error generating potential companies. Please try again or contact support if the issue persists.
+                                                </td>
+                                            </tr>
+                                            <tr>
+                                                <td style="font-size: 14px; color: #7f8c8d; padding-bottom: 20px;">
+                                                    <a href="tel:+919655612306" style="color: #4ca1af; text-decoration: none;">+91 96556 12306</a>
+                                                    <a href="mailto:dharani96556@gmail.com" style="color: #4ca1af; text-decoration: none;">dharani96556@gmail.com</a>
+                                                </td>
+                                            </tr>
+
+                                            <!-- Footer -->
+                                            <tr>
+                                                <td style="font-size: 12px; color: #95a5a6; padding-top: 20px;">
+                                                    Lead Stream is a product of <a href="https://heuro.in" target="_blank" style="color: #4ca1af; text-decoration: none;">heuro.in</a>
+                                                </td>
+                                            </tr>
+
+                                        </table>
+                                        
+                                    </td>
+                                </tr>
+                            </table>
+
+                        </body>
+                        </html>
+                        """
+        
+        send_notification_email(user_mail, "Error Generating Companies", html_body)
+        
+        product_item = db.query(ProductDetails).filter(ProductDetails.product_id == request.product_id).first()
+        product_item.preloading_status = False
+        db.commit()
+        raise HTTPException(status_code=500, detail=f"Error generating potential companies: {e}")
 
 # @app.post("/potential-decision-makers")
 def get_potential_decision_makers(request: DecisionMakerRequest):
@@ -932,18 +1024,45 @@ def get_potential_decision_makers(request: DecisionMakerRequest):
 
 
 @app.get("/product_loading_status")
-def get_product_loading_status(user_id: str, product_id: str, db: Session = Depends(get_db)):
-    product = db.query(ProductDetails).filter(ProductDetails.product_id == product_id, ProductDetails.user_id == user_id).first()
-    if not product:
-        raise HTTPException(status_code=404, detail="Product not found")
-    
-    while product.preloading_status == True:
-        time.sleep(2)
-        product = db.query(ProductDetails).filter(ProductDetails.product_id == product_id, ProductDetails.user_id == user_id).first()
+async def get_product_loading_status(user_id: str, product_id: str, db: Session = Depends(get_db)):
+    try:
+        conn = await asyncpg.connect(os.getenv("DATABASE_URL"))
+        row = await conn.fetchrow("SELECT preloading_status FROM product_details WHERE product_id = $1", product_id)
+        await conn.close()
+        if row:
+            return {"product_id": product_id, "preloading_status": row["preloading_status"]}
+        else:
+            raise HTTPException(status_code=404, detail="Product not found")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
-    else:
-        return {"preloading_status": product.preloading_status}
+# Callback function called when a notification is received from PostgreSQL.
+def notify_callback(connection, pid, channel, payload):
+    try:
+        # Parse the JSON payload from PostgreSQL
+        data = json.loads(payload)
+        product_id = data.get("product_id")
+        preloading_status = data.get("preloading_status")
+        # Schedule the sending of notifications as an asyncio task.
+    except Exception as e:
+        print("Error parsing payload:", e)
 
+# Background task that connects to PostgreSQL and listens for notifications.
+async def listen_to_db():
+    try:
+        conn = await asyncpg.connect(os.getenv("DATABASE_URL"))
+        # Listen on the "preloading_status_change" channel
+        await conn.add_listener('preloading_status_change', notify_callback)
+        # Keep the task running indefinitely.
+        while True:
+            await asyncio.sleep(1)
+    except Exception as e:
+        print("Error in listen_to_db:", e)
+
+# Startup event: launch the background listener.
+@app.on_event("startup")
+async def startup_event():
+    asyncio.create_task(listen_to_db())
 
 # @app.post("/email-proposal")
 def get_email_proposal(request: EmailProposalRequest):
@@ -1064,6 +1183,7 @@ async def send_email(email: EmailData, user_id: str, user_email: str, encrypted_
     sender_position = email.sender_position
     sender_email = user_email
     product_id = email.product_id
+    company_id = email.company_id
 
     encrypted_pass = urllib.parse.unquote(encrypted_password)
 
@@ -1089,6 +1209,7 @@ async def send_email(email: EmailData, user_id: str, user_email: str, encrypted_
             user_id=user_id,  # Set the user_id
             dm_name=recipient_name,
             company_name=company_name,
+            company_id=company_id,
             dm_position=dm_position,
             email_id=recipient,
             email_subject=subject,
@@ -1266,10 +1387,12 @@ async def track(tracking_id: str):
 
     if email_entry and (email_entry.status != "Interested" or email_entry.status != "Not Interested"):
         email_entry.status = "Opened but Not Responded"
+        email_entry.open_count += 1
         db.commit()
     
-    if followup_entry and (followup_entry.status != "Interested" or followup_entry.status != "Not Interested"):
-        followup_entry.status = "Opened but Not Responded"
+    if followup_entry and (followup_entry.followup_status != "Interested" or followup_entry.followup_status != "Not Interested"):
+        followup_entry.followup_status = "Opened but Not Responded"
+        followup_entry.open_count += 1
         db.commit()
 
     if not(email_entry or followup_entry):
@@ -1463,7 +1586,7 @@ async def track_response(tracking_id: str, response: str):
         return FileResponse("not-interested.html")
     
     if followup_entry and response == "interested":
-        followup_entry.status = "Interested"
+        followup_entry.followup_status = "Interested"
         db.commit()
         print(f"Followup with Tracking ID: {tracking_id} has been opened and interested")
         html_body = f"""
@@ -1523,7 +1646,7 @@ async def track_response(tracking_id: str, response: str):
         return FileResponse("interested.html")
     
     if followup_entry and response == 'not-interested':
-        followup_entry.status = "Not Interested"
+        followup_entry.followup_status = "Not Interested"
         db.commit()
         print(f"Followup with Tracking ID: {tracking_id} has been opened and not interested")
         html_body = f"""
@@ -1896,12 +2019,13 @@ def fetch_mail_status(user_id: str, db: Session = Depends(get_db)):
                                      "followup_id": followup.followup_id,
                                      "date_sent": followup.followup_date, 
                                      "followup_sent_count": followup.followup_sent_count, 
+                                     "open_count": followup.open_count,
                                      "sender_name": followup.sender_name,
                                      "sender_company": followup.sender_company,
                                      "sender_position": followup.sender_position,
                                      "sender_email": followup.sender_email,
                                      "followup_threshold": followup.followup_threshold
-                                     } for followup in db.query(FollowupStatus).all()}
+                                     } for followup in db.query(FollowupStatus).filter(FollowupStatus.user_id == user_id).all()}
     db.close()
     
     result = []
@@ -1912,8 +2036,11 @@ def fetch_mail_status(user_id: str, db: Session = Depends(get_db)):
             "followup_id": followup_data['followup_id'] if followup_data != "No Followup" else None,
             "dm_name": email.dm_name,
             "company_name": email.company_name,
+            "company_id": email.company_id,
             "dm_position": email.dm_position,
             "email_id": email.email_id,
+            "followup_open_count": followup_data['open_count'] if followup_data != "No Followup" else 0,
+            "email_open_count": email.open_count,
             "email_subject": email.email_subject,
             "sender_name": followup_data['sender_name'] if followup_data != "No Followup" else email.sender_name,
             "sender_company": followup_data['sender_company'] if followup_data != "No Followup" else email.sender_company,

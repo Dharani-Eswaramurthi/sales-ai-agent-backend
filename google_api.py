@@ -31,14 +31,14 @@ def google_search(query, limit):
     return response.json()['results'][:limit]
 
 # Example usage
-api_key = 'AIzaSyDWQdpxZHM7Zpft2tMJ_1olqoXthQrlXfo'
-search_engine_id = '82bd22c03bc644768'
-comp_name = 'Whoop'
-position = 'VP'
-query = f'''Present {position} at {comp_name} AND site:linkedin.com'''
-results = google_search(query, limit=5)  # Set limit to 5
+# api_key = 'AIzaSyDWQdpxZHM7Zpft2tMJ_1olqoXthQrlXfo'
+# search_engine_id = '82bd22c03bc644768'
+# comp_name = 'Whoop'
+# position = 'VP'
+# query = f'''Present {position} at {comp_name} AND site:linkedin.com'''
+# results = google_search(query, limit=5)  # Set limit to 5
 
-print(results)
+# print(results)
 # Process results
 # for item in results.get('items', []):
 #     title = item.get('title')

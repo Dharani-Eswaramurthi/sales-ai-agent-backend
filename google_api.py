@@ -44,6 +44,3 @@ def google_search(query, limit):
 #     title = item.get('title')
 #     snippet = item.get('snippet')
 #     print(f'Title: {title}\nSnippet: {snippet}\n')
-
-
-

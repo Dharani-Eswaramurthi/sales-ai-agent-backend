@@ -1,5 +1,5 @@
 import ast
-from fastapi import FastAPI, HTTPException, Form, Depends
+from fastapi import FastAPI, HTTPException, Form, Depends, BackgroundTasks
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import Column, String, TIMESTAMP, create_engine, text, ForeignKey, Integer, Boolean
@@ -573,6 +573,9 @@ def get_user(user_id: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail=f"Error fetching user: {e}")
 
 @app.post("/potential-companies")
+async def start_process(background_tasks: BackgroundTasks, request: ProductRequest, db: Session = Depends(get_db)):
+    background_tasks.add_task(get_generated_companies(request))
+    return {"message": "Companies generation process started"}
 def get_potential_companies(request: ProductRequest, db: Session = Depends(get_db)):
     try:
         if not API_KEY:
